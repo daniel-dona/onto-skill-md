@@ -90,11 +90,13 @@ def call_oops(rdf_content: str, pitfalls: str = "", timeout: int = 120) -> reque
     -------
     requests.Response
     """
+    # Escape CDATA end token if present in the content to avoid breaking XML
+    safe_content = rdf_content.replace("]]>", "] ]>")
     payload = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<OOPSRequest>'
         '<OntologyURI></OntologyURI>'
-        f'<OntologyContent><![CDATA[{rdf_content}]]></OntologyContent>'
+        f'<OntologyContent><![CDATA[{safe_content}]]></OntologyContent>'
         f'<Pitfalls>{pitfalls}</Pitfalls>'
         '<OutputFormat>XML</OutputFormat>'
         '</OOPSRequest>'

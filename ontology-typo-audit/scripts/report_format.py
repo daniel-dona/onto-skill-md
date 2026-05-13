@@ -46,8 +46,9 @@ class Issue:
 
     def to_dict(self) -> dict:
         d = asdict(self)
-        # Remove empty optional fields for cleaner output
-        return {k: v for k, v in d.items() if v not in (0, "", None) or k in ("file", "message", "severity")}
+        # Remove optional fields only when truly empty and not structural
+        # Keep 'line', 'check', 'predicate' even when 0/"" for schema consistency
+        return {k: v for k, v in d.items() if v not in (None,) or k in ("file", "message", "severity")}
 
 
 @dataclass

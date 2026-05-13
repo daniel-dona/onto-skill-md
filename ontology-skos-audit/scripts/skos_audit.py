@@ -143,7 +143,7 @@ def skos_audit(repo_path: str) -> list[dict]:
                     for label in labels:
                         if normalize(label) == normalize(not_val):
                             matches_label = True
-                if not matches_label and normalize(not_val) != normalize(fragment):
+                if not matches_label:
                     issues.append({
                         "severity": "info",
                         "check": "notation-mismatch",

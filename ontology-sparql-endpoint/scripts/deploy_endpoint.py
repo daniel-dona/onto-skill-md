@@ -352,6 +352,16 @@ def main():
         except Exception as e:
             print(f"[ERROR] {e}", file=sys.stderr)
             sys.exit(1)
+    else:
+        # Validate that the store has data when serving existing data
+        from pyoxigraph import NamedNode
+        has_triples = False
+        for _ in store.query("SELECT * WHERE { ?s ?p ?o } LIMIT 1"):
+            has_triples = True
+            break
+        if not has_triples:
+            print(f"[WARN] Store at {args.data_dir} appears to be empty. "
+                  f"Load data first by running without --serve-only.", file=sys.stderr)
 
     if not args.no_serve:
         serve(store, args.data_dir, bind=args.bind, port=args.port)

@@ -26,7 +26,12 @@ from rdf_utils import load_graph, find_rdf_files, compact_uri
 
 
 def select_main_file(repo_path: str) -> str | None:
-    """Pick the most likely main ontology file."""
+    """Pick the most likely main ontology file.
+
+    Heuristic: prefer .owl files that declare an owl:Ontology triple.
+    Falls back to the first .owl file, then the first RDF file found.
+    """
+    from rdflib import Graph as _G, OWL as _OWL, RDF as _RDF
     candidates = []
     for f in find_rdf_files(repo_path):
         if f.endswith(".owl"):
@@ -36,9 +41,10 @@ def select_main_file(repo_path: str) -> str | None:
     # Prefer files containing owl:Ontology declaration
     for f in candidates:
         try:
-            g = load_graph(repo_path)[0]
-            # Quick check — just pick first
-            return f
+            _g = _G()
+            _g.parse(f)
+            if any(_g.triples((None, _RDF.type, _OWL.Ontology))):
+                return f
         except Exception:
             continue
     return candidates[0] if candidates else None
@@ -46,17 +52,27 @@ def select_main_file(repo_path: str) -> str | None:
 
 def merge_and_check(repo_path: str, main_file: str | None = None) -> dict:
     """
-    Merge all RDF files and run reasoner. Return structured results.
+    Merge RDF files and run reasoner. Return structured results.
 
-    Strategy: use rdflib to merge, then save as a temp OWL file, then load
-    with owlready2 for reasoning.
+    If main_file is given, only that file is loaded instead of merging the
+    whole repository. Strategy: use rdflib to merge, then save as a temp OWL
+    file, then load with owlready2 for reasoning.
     """
     import subprocess
     import tempfile
 
-    # Load with rdflib to merge all files
-    print(f"[INFO] Merging RDF files from {repo_path}...", file=sys.stderr)
-    g, warnings = load_graph(repo_path)
+    # Load with rdflib
+    print(f"[INFO] Loading RDF files from {repo_path}...", file=sys.stderr)
+    if main_file:
+        print(f"[INFO] --only-file specified: loading only {main_file}", file=sys.stderr)
+        g = Graph()
+        warnings = []
+        try:
+            g.parse(main_file)
+        except Exception as e:
+            warnings.append(f"Could not parse {main_file}: {e}")
+    else:
+        g, warnings = load_graph(repo_path)
 
     if len(g) == 0:
         return {"warnings": warnings, "error": "No RDF triples loaded"}
@@ -88,12 +104,12 @@ def merge_and_check(repo_path: str, main_file: str | None = None) -> dict:
         os.unlink(tmp_path)
         return {"warnings": warnings + [f"owlready2 load error: {e}"], "error": str(e)}
 
-    # Run reasoner (HermiT)
+    # Run reasoner (HermiT) with a timeout guard
     print(f"[INFO] Running HermiT reasoner...", file=sys.stderr)
     start = time.time()
     try:
         with onto:
-            owlready2.sync_reasoner(infer_property_values=False)
+            owlready2.sync_reasoner(infer_property_values=False, reasoner_param=["-timeLimit", "300"])
     except Exception as e:
         os.unlink(tmp_path)
         return {
@@ -103,31 +119,33 @@ def merge_and_check(repo_path: str, main_file: str | None = None) -> dict:
 
     reasoner_time = round(time.time() - start, 2)
 
-    # Collect results
+    # Collect results — prefer inconsistent_classes() as the authoritative source
     unsatisfiable = []
-    for cls in onto.classes():
-        try:
-            if owlready2.NotOWLClass not in cls.is_a:
-                # After reasoning, unsatisfiable classes become equivalent to owl:Nothing
-                if hasattr(cls, 'equivalent_to'):
-                    eq_set = set(cls.equivalent_to)
-                    if owlready2.owl.Nothing in eq_set:
-                        name = cls.name or str(cls.iri)
-                        unsatisfiable.append({"name": name, "iri": str(cls.iri) if cls.iri else ""})
-        except Exception:
-            pass
+    seen_names = set()
 
-    # Also check owlready2's inconsistent_classes()
+    # Primary method: owlready2's inconsistent_classes()
     try:
         for cls in owlready2.default_world.inconsistent_classes():
             # Skip owl:Nothing itself (it's trivially unsatisfiable)
             if cls == owlready2.owl.Nothing:
                 continue
             name = cls.name or str(cls.iri)
-            if not any(u["name"] == name for u in unsatisfiable):
+            if name not in seen_names:
+                seen_names.add(name)
                 unsatisfiable.append({"name": name, "iri": str(cls.iri) if cls.iri else ""})
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[WARN] inconsistent_classes() failed: {exc}", file=sys.stderr)
+
+    # Fallback: check equivalent_to for owl:Nothing (catches some edge cases)
+    for cls in onto.classes():
+        try:
+            if owlready2.owl.Nothing in cls.equivalent_to:
+                name = cls.name or str(cls.iri)
+                if name not in seen_names:
+                    seen_names.add(name)
+                    unsatisfiable.append({"name": name, "iri": str(cls.iri) if cls.iri else ""})
+        except Exception:
+            pass
 
     # Inconsistent ontology (global)
     inconsistent = False

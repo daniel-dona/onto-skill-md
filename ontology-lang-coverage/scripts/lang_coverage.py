@@ -19,7 +19,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-from rdflib import RDFS, SKOS
+from rdflib import RDFS, SKOS, URIRef
 
 from rdf_utils import load_graph, compact_uri
 
@@ -61,7 +61,7 @@ def build_coverage_report(repo_path: str, expected_langs: list[str] | None = Non
     detailed = {}
 
     for resource_uri, lang_labels in sorted(resource_langs.items()):
-        short = compact_uri(resource_uri, g) if hasattr(g, 'namespace_manager') else resource_uri
+        short = compact_uri(URIRef(resource_uri), g) if hasattr(g, 'namespace_manager') else resource_uri
         entry = {"resource": resource_uri, "resource_short": short, "labels": lang_labels, "missing": []}
 
         for tl in target_langs:

@@ -98,12 +98,18 @@ def check_with_rdflib(fpath: str) -> dict:
     g = Graph()
     try:
         g.parse(fpath, format=None)  # auto-detect
-        return {"ok": True, "triples": len(g), "error": None}
+        return {"ok": True, "triples": len(g), "error": None, "line": 0, "col": 0}
     except Exception as e:
         msg = str(e)
         if len(msg) > 500:
             msg = msg[:500] + "..."
-        return {"ok": False, "error": msg, "line": 0, "col": 0, "triples": 0}
+        # Try to extract line number from rdflib error messages
+        line_num = 0
+        import re
+        m = re.search(r'line\s+(\d+)', msg, re.IGNORECASE)
+        if m:
+            line_num = int(m.group(1))
+        return {"ok": False, "error": msg, "line": line_num, "col": 0, "triples": 0}
 
 
 def validate_repo(repo_path: str, use_rapper: bool = True) -> dict:

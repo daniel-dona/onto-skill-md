@@ -1,1 +1,11 @@
 __pycache__
+*.pyc
+*.pyo
+.venv/
+venv/
+oxigraph_data/
+dry_run_ontology.owl
+*.egg-info/
+dist/
+build/
+*.egg

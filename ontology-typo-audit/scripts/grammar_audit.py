@@ -120,8 +120,10 @@ DEFAULT_DISABLED_RULES = {}
 MIN_LENGTH = 3
 
 
-def get_tool_for_lang(lang_code: str, _cache: dict = {}):
+def get_tool_for_lang(lang_code: str, _cache: dict | None = None):
     """Get or create a LanguageTool instance for a given language."""
+    if _cache is None:
+        _cache = {}
     lt_lang = LANG_MAP.get(lang_code.lower(), lang_code)
 
     if lt_lang not in _cache:
@@ -340,11 +342,22 @@ def main():
                         help="Max grammar issues per literal (default: 5)")
     parser.add_argument("--lang", nargs="+", default=None,
                         help="Only check these language tags (e.g. --lang es en)")
+    parser.add_argument("--dump", action="store_true",
+                        help="Dump all string literals without checking grammar")
+    parser.add_argument("--no-lang", action="store_true",
+                        help="Include literals without a language tag when dumping")
     parser.add_argument("--no-mismatch", action="store_true",
                         help="Skip lang tag mismatch detection")
     parser.add_argument("--format", choices=["json", "markdown", "report"], default="markdown",
                         help="Output format: markdown (default), json, or report (standardized table)")
     args = parser.parse_args()
+
+    if args.dump:
+        literals = extract_literals(args.repo_path, include_no_lang=args.no_lang)
+        for lit in literals:
+            lang_str = f"@{lit['lang']}" if lit['lang'] else "(no lang)"
+            print(f"{lang_str}\t{lit['subject_short']}\t{lit['predicate_short']}\t{lit['value']}")
+        return
 
     report = audit_repo(
         args.repo_path,
