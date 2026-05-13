@@ -21,7 +21,7 @@ python ontology-skos-audit/scripts/skos_audit.py examples/skos
 python ontology-oops-scan/scripts/oops_scan.py examples/oops
 
 # Language coverage
-python ontology-lang-coverage/scripts/lang_coverage.py examples/lang-coverage --lang es en
+python ontology-lang-coverage/scripts/lang_coverage.py examples/lang-coverage --lang en de fr
 
 # SHACL validation
 python ontology-shacl-validate/scripts/shacl_validate.py examples/shacl
@@ -40,10 +40,10 @@ python ontology-syntax-validate/scripts/syntax_validate.py examples/syntax
 
 | Example | Skill | Expected Findings |
 |---------|-------|-------------------|
-| `typos/test.ttl` | typo-audit | 3 spelling/accent errors, 1 lang tag mismatch |
+| `typos/test.ttl` | typo-audit | 6 spelling errors across en/es/de/fr, 1 lang tag mismatch (@es→@en) |
 | `skos/test.ttl` | skos-audit | 1 orphan concept, 1 empty scheme, 2 duplicate labels, 1 notation mismatch, 1 missing prefLabel |
 | `oops/test.ttl` | oops-scan | P08 (missing annotations), P10 (missing disjointness), P11 (missing domain/range), P13 (no inverse) |
-| `lang-coverage/test.ttl` | lang-coverage | 2 resources missing translations, 1 extra language |
+| `lang-coverage/test.ttl` | lang-coverage | 2 missing translations, 1 extra language (en/de/fr project) |
 | `shacl/test.ttl` | shacl-validate | 2 violations (missing name, wrong datatype, short postal code) |
 | `vocab/test.ttl` | vocab-audit | 1 broken import, 2 reinventions (:label, :sameAs), 1 unresolvable namespace |
 | `reasoner/test.ttl` | reasoner-check | 1 unsatisfiable class (:SquareCircle), 1 equivalence (:Person ≡ :Human) |

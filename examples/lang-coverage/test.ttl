@@ -5,33 +5,38 @@
 
 # =============================================================================
 # Example for ontology-lang-coverage skill
-# Issues demonstrated:
-#   1. :StreetLamp — has @en label but missing @es (incomplete coverage)
-#   2. :ParkingMeter — has @es label but missing @en
-#   3. :BusStop — has both @en and @es (complete — no issue)
-#   4. :BicycleRack — has @fr label (extra language not in target en/es)
+# Demonstrates a trilingual project (en/de/fr) with missing translations.
+# Issues:
+#   1. :StreetLamp — has @en, @de but missing @fr
+#   2. :ParkingMeter — has @de only
+#   3. :BusStop — complete in all 3 languages
+#   4. :BicycleRack — has @es (outside expected en/de/fr set)
 # =============================================================================
 
 : a owl:Ontology ;
-    rdfs:label "Lang Coverage Test"@en ;
-    rdfs:label "Prueba de Cobertura"@es .
+    rdfs:label "Language Coverage Test"@en ;
+    rdfs:label "Sprachabdeckungstest"@de ;
+    rdfs:label "Test de couverture linguistique"@fr .
 
-# Missing @es
+# Missing @fr
 :StreetLamp a owl:Class ;
     rdfs:label "Street Lamp"@en ;
-    rdfs:comment "A lamp on the street"@en .
+    rdfs:label "Straßenlaterne"@de ;
+    rdfs:comment "Illuminates streets at night"@en .
 
-# Missing @en
+# Only @de
 :ParkingMeter a owl:Class ;
-    rdfs:label "Parquímetro"@es ;
-    rdfs:comment "Máquina de pago de estacionamiento"@es .
+    rdfs:label "Parkscheinautomat"@de ;
+    rdfs:comment "Automat für Parkgebühren"@de .
 
-# Complete (both langs)
+# Complete (3 languages)
 :BusStop a owl:Class ;
     rdfs:label "Bus Stop"@en ;
-    rdfs:label "Parada de Autobús"@es .
+    rdfs:label "Bushaltestelle"@de ;
+    rdfs:label "Arrêt de bus"@fr .
 
-# Extra language (has @fr when project is en/es only)
+# Extra language (@es outside en/de/fr)
 :BicycleRack a owl:Class ;
     rdfs:label "Bicycle Rack"@en ;
-    rdfs:label "Porte-vélos"@fr .
+    rdfs:label "Fahrradständer"@de ;
+    rdfs:label "Aparcamiento de bicicletas"@es .

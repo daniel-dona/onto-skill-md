@@ -67,16 +67,11 @@ LANG_MAP = {
     "fa": "fa",
 }
 
-# Rules that are almost always false positives on ontology labels/comments
-DEFAULT_DISABLED_RULES = {
-    # English
-    "en": {"COMMA_COMPOUND_SENTENCE", "EN_QUOTES", "DASH_RULE", "WHITESPACE_RULE",
-           "SENTENCE_WHITESPACE", "UPPERCASE_SENTENCE_START", "FIRST_PERSON",
-           "MORFOLOGIK_RULE", "CONTRACTION_IT_IS", "IT_IS", "ENGLISH_WORD_REPEAT_BEGINNING_RULE"},
-    # Spanish
-    "es": {"WHITESPACE_RULE", "SENTENCE_WHITESPACE", "MORFOLOGIK_RULE",
-           "UPPERCASE_SENTENCE_START", "ES_COMA_INCORRECTA"},
-}
+# Rules that are often noisy on ontology labels/comments.
+# Empty by default — add language-specific rules here if needed.
+# Example for Spanish:
+#   "es": {"WHITESPACE_RULE", "UPPERCASE_SENTENCE_START"}
+DEFAULT_DISABLED_RULES = {}
 
 # Minimum literal length to check (skip single words, abbreviations)
 MIN_LENGTH = 3
@@ -136,39 +131,41 @@ def check_literal(value: str, lang: str, max_errors: int = 5) -> list[dict]:
     return issues
 
 
-def detect_lang_mismatch(literal_entry: dict, _cache: dict = {}) -> list[str]:
+def detect_lang_mismatch(literal_entry: dict, all_langs: set[str]) -> list[str]:
     """
-    Heuristic: run both en and es tools on a literal and see which one
-    produces fewer errors — can flag a mismatched lang tag.
-    Returns a list of warnings.
+    Compare the declared language against all other languages in the repo.
+    If another language produces significantly fewer errors, flag a possible mismatch.
     """
     value = literal_entry["value"]
     lang = literal_entry["lang"]
 
     if len(value.strip()) < 20:
-        return []  # Too short for reliable detection
+        return []
 
-    warnings = []
-
-    # Check if the declared language produces many errors but another produces fewer
     issues_declared = check_literal(value, lang)
-    error_count_declared = len(issues_declared)
+    error_count = len(issues_declared)
 
-    # Try common alternative (for en/es repos, this is the main use case)
-    alternatives = {"en": "es", "es": "en", "fr": "en", "de": "en", "pt": "es"}
-    alt = alternatives.get(lang)
-    if alt:
+    if error_count < 3:
+        return []
+
+    # Compare against every other language present in the repo
+    other_langs = all_langs - {lang}
+    best_alt = None
+    best_errors = error_count
+
+    for alt in other_langs:
         issues_alt = check_literal(value, alt)
-        error_count_alt = len(issues_alt)
+        if len(issues_alt) < best_errors:
+            best_errors = len(issues_alt)
+            best_alt = alt
 
-        # If the alternative language has significantly fewer errors, flag it
-        if error_count_alt == 0 and error_count_declared >= 3:
-            warnings.append(
-                f"Possible lang tag mismatch: declared @{lang} but text looks more like @{alt} "
-                f"({error_count_declared} errors in {lang} vs {error_count_alt} in {alt})"
-            )
+    if best_alt and best_errors <= 1 and error_count - best_errors >= 3:
+        return [
+            f"Possible lang tag mismatch: declared @{lang} but text looks like @{best_alt} "
+            f"({error_count} errors in {lang} vs {best_errors} in {best_alt})"
+        ]
 
-    return warnings
+    return []
 
 
 def audit_repo(repo_path: str, max_errors: int = 5,
@@ -186,6 +183,12 @@ def audit_repo(repo_path: str, max_errors: int = 5,
     if filter_langs:
         lang_set = set(l.lower() for l in filter_langs)
         literals = [l for l in literals if l["lang"] and l["lang"].lower() in lang_set]
+
+    # Collect all languages present in the repo (for mismatch detection)
+    all_langs = set()
+    for lit in literals:
+        if lit["lang"]:
+            all_langs.add(lit["lang"].lower())
 
     # Deduplicate by (value, lang) — same text in same lang is same check
     seen = {}
@@ -226,7 +229,7 @@ def audit_repo(repo_path: str, max_errors: int = 5,
 
         # Lang tag mismatch detection
         if check_mismatch and issues:
-            warnings = detect_lang_mismatch(occurrences[0])
+            warnings = detect_lang_mismatch(occurrences[0], all_langs)
             if warnings:
                 entry["lang_warnings"] = warnings
 

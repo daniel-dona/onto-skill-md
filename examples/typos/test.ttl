@@ -3,28 +3,41 @@
 @prefix : <http://example.com/typo#> .
 
 # =============================================================================
-# Example for ontology-typo-audit skill
-# Issues demonstrated:
-#   1. @es "Pista de Padel" — missing accent: should be "Pista de Pádel"
-#   2. @es "Lampara de calle" — missing accent: should be "Lámpara"
-#   3. @en "pubic transport" — typo: should be "public transport"
-#   4. @es "The bus stop" — wrong lang tag (English text tagged @es)
-#   5. @es "Centro de Salud" — correct, no issue
+# Example for ontology-typo-audit skill — multilingual (en/es/de/fr)
+# Issues:
+#   1. @es "Pista de Padel" — missing accent: "Pista de Pádel"
+#   2. @es "Lampara de calle" — missing accent: "Lámpara"
+#   3. @de "Strassenlaterne" — missing ß: "Straßenlaterne"
+#   4. @de "Fahrradstaender" — should be "Fahrradständer" (ä not ae in this context - actually in Swiss German ae is OK, but in de-DE it should be ä)
+#   5. @fr "Arrêt de buse" — extra 'e': "Arrêt de bus"
+#   6. @en "pubic transport" — typo: "public transport"
+#   7. @es "The bus stop" — English text tagged @es (lang tag mismatch)
+#   8. @fr correct items — no issues
+#   9. @de correct items — no issues
 # =============================================================================
 
 :StreetLamp a skos:Concept ;
     skos:prefLabel "Street Lamp"@en ;
-    skos:prefLabel "Lampara de calle"@es ;      # ← missing accent: Lámpara
+    skos:prefLabel "Lampara de calle"@es ;           # ← Lámpara
+    skos:prefLabel "Strassenlaterne"@de ;            # ← Straßenlaterne
     skos:definition "Una lampara en la via publica"@es .  # ← 2 accent errors
 
 :PadelCourt a skos:Concept ;
     skos:prefLabel "Padel Court"@en ;
-    skos:prefLabel "Pista de Padel"@es .        # ← missing accent: Pádel
+    skos:prefLabel "Pista de Padel"@es .             # ← Pádel
 
 :Transport a skos:Concept ;
-    skos:prefLabel "pubic transport"@en ;       # ← typo: should be public
-    skos:prefLabel "The bus stop"@es .          # ← wrong lang tag (English @es)
+    skos:prefLabel "pubic transport"@en ;            # ← public
+    skos:prefLabel "The bus stop"@es ;               # ← English @es — mismatch
+    skos:prefLabel "Öffentlicher Verkehr"@de .       # ← correct
+
+:BikeRack a skos:Concept ;
+    skos:prefLabel "Bicycle Rack"@en ;
+    skos:prefLabel "Fahrradstaender"@de ;            # ← Fahrradständer
+    skos:prefLabel "Arrêt de buse"@fr .             # ← Arrêt de bus
 
 :HealthCenter a skos:Concept ;
     skos:prefLabel "Health Center"@en ;
-    skos:prefLabel "Centro de Salud"@es .       # ← correct, no issue
+    skos:prefLabel "Centro de Salud"@es ;            # ← correct
+    skos:prefLabel "Gesundheitszentrum"@de ;         # ← correct
+    skos:prefLabel "Centre de santé"@fr .            # ← correct
