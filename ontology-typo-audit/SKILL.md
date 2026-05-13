@@ -1,8 +1,8 @@
 ---
 name: ontology-typo-audit
-description: Provides a script and instructions to audit spelling and grammar of every string literal in its declared language. Uses Hunspell (fast) for spelling by default, LanguageTool (slow) for grammar on request. Detects lang-tag mismatches on request. Use when cleaning up ontology labels or before a release.
+description: Provides a script and instructions to audit spelling and grammar of every string literal in its declared language. Uses pyspellchecker (pip-only, fast) for spelling by default, LanguageTool (optional, slow) for grammar on request. Detects lang-tag mismatches on request. Use when cleaning up ontology labels or before a release.
 license: MIT
-compatibility: Requires python3, rdflib, hunspell (recommended, fast) or language-tool-python (optional, slow)
+compatibility: Requires python3, rdflib, pyspellchecker. Optional: language-tool-python (for grammar).
 ---
 
 # Ontology Typo Audit
@@ -13,57 +13,44 @@ literal in its declared language.
 
 **Single script:** `scripts/grammar_audit.py` — extract, audit, report.
 
-## Two- Tier Checking
+**All dependencies via pip.** No system tools required.
 
-| Tier | Tool | Speed | What it catches | When to use |
-|------|------|-------|-----------------|-------------|
-| 1 (default) | **Hunspell** | ⚡ Instant | Misspellings, missing accents (Pádel vs Padel), unknown words | Always — run this first |
-| 2 (optional) | **LanguageTool** | 🐢 ~1s/literal | Grammar errors, agreement, articles + spelling | `--grammar` — only on literals that already have spelling issues |
+## Two-Tier Checking
+
+| Tier | Tool | Install | Speed | What it catches |
+|------|------|---------|-------|-----------------|
+| 1 (default) | **pyspellchecker** | `pip install pyspellchecker` | ⚡ Instant | Misspellings, missing accents, unknown words |
+| 2 (optional) | **LanguageTool** | `pip install language-tool-python` | 🐢 ~1s/literal | Grammar errors, agreement, articles, context-dependent errors |
 
 Ontology labels are short ("Street Lamp", "Pista de Pádel"). Misspellings and
 missing accents account for ~90% of real issues. Grammar checking produces
-mostly noise on short text. Hence: **Hunspell by default, LanguageTool on
-request.**
+mostly noise on short text. Hence: **pyspellchecker by default, LanguageTool
+on request.**
+
+## What pyspellchecker Catches (and Doesn't)
+
+✅ **Catches:**
+- Missing accents: "Padel" → suggests "Pádel", "Lampara" → "Lámpara"
+- Misspellings: "pubic" (flagged as unknown in short labels), unknown words
+- Custom dictionaries: domain terms loaded via `--dict` or `--word`
+
+⚠️ **Doesn't catch (use `--grammar`):**
+- Context-dependent errors: "pubic transport" (both words valid in English)
+- Grammar: "The bus stop" tagged `@es` (use `--mismatch` instead)
+- Languages beyond the 8 supported: ca, gl, ro, sv, cs, da, el, fi, hu, ko,
+  no, sk, sl, tr, uk, he, ja, zh (use `--grammar` for these)
 
 ## Setup
-
-### Hunspell (recommended — fast)
-
-System tool, install once:
-
-```bash
-sudo apt install hunspell hunspell-es hunspell-de hunspell-fr   # Debian/Ubuntu
-brew install hunspell                                            # macOS
-```
-
-Install only the dictionaries for your project's languages. Common packages:
-
-| Language | Package (Debian) |
-|----------|-----------------|
-| English | `hunspell-en-us` |
-| Spanish | `hunspell-es` |
-| German | `hunspell-de-de` |
-| French | `hunspell-fr` |
-| Portuguese | `hunspell-pt-br` |
-| Italian | `hunspell-it-it` |
-| Catalan | `hunspell-ca` |
-| Galician | `hunspell-gl` |
-
-Full list: `apt search hunspell-`
-
-### Python dependencies
 
 ```bash
 cd <your-ontology-repo>
 python3 -m venv .venv
 source .venv/bin/activate
 
-pip install rdflib
+pip install rdflib pyspellchecker
 ```
 
-### LanguageTool (optional — for grammar)
-
-Only needed if you want grammar checking (`--grammar`):
+For grammar checking (optional):
 
 ```bash
 pip install language-tool-python
@@ -77,6 +64,16 @@ pip install language-tool-python
 > deactivate && rm -rf .venv
 > ```
 > Skip this if the user asks to keep the environment.
+
+## Supported Languages
+
+| Tool | Languages |
+|------|-----------|
+| pyspellchecker | **en**, **es**, **de**, **fr**, **pt**, **it**, **nl**, **ru**, **ar** (8 base + variants) |
+| LanguageTool (`--grammar`) | 30+ (en, es, de, fr, pt, it, nl, pl, ru, uk, ja, zh, ar, ca, cs, da, el, fi, gl, he, hi, hu, ko, no, ro, sk, sl, sv, tl, tr, fa) |
+
+If your project uses a language not supported by pyspellchecker (e.g. ca, gl,
+sv), use `--grammar` which falls back to LanguageTool for those languages.
 
 ## Workflow
 
@@ -92,34 +89,40 @@ python scripts/grammar_audit.py . --dump --no-lang
 python scripts/grammar_audit.py . -o SPELL_REPORT.md
 ```
 
-### 3. Spell + grammar check (slow)
+### 3. With custom dictionary words
+
+```bash
+# Add domain-specific terms so they aren't flagged as errors
+python scripts/grammar_audit.py . --word pádel Straße --dict my_words.txt
+```
+
+The `--dict` file format: one word per line, `#` comments allowed.
+
+### 4. Spell + grammar check (slow)
 
 ```bash
 python scripts/grammar_audit.py . --grammar -o FULL_REPORT.md
 ```
 
-### 4. Fast mode (quick scan)
+### 5. With lang-mismatch detection
 
 ```bash
-python scripts/grammar_audit.py . --fast
+python scripts/grammar_audit.py . --mismatch
 ```
 
-### 5. Filter by language
+### 6. Filter by language
 
 ```bash
 python scripts/grammar_audit.py . --lang de fr
 ```
 
-### 6. With lang-mismatch detection
+### 7. Fast mode (quick scan)
 
 ```bash
-# Fast with hunspell:
-python scripts/grammar_audit.py . --mismatch
-# Slow (also checks grammar in every language):
-python scripts/grammar_audit.py . --grammar --mismatch
+python scripts/grammar_audit.py . --fast
 ```
 
-### 7. JSON for CI
+### 8. JSON for CI
 
 ```bash
 python scripts/grammar_audit.py . --format json
@@ -127,38 +130,29 @@ python scripts/grammar_audit.py . --format json
 
 ## What It Detects
 
-| Category | Tool | Description |
-|----------|------|-------------|
-| Spelling errors | Hunspell | Misspelled words, missing accents |
-| Unknown words | Hunspell | Words not in the dictionary (proper nouns, acronyms) |
-| Grammar errors | LanguageTool (`--grammar`) | Agreement, wrong verb forms, missing articles |
-| Suspicious lang tags | `--mismatch` | Text with many errors in declared language but few in another |
-| Missing lang tags | `--dump --no-lang` | Literals with no `@xx` tag |
+| Category | Tool | Flag | Description |
+|----------|------|------|-------------|
+| Spelling errors | pyspellchecker | (default) | Misspellings, missing accents |
+| Unknown words | pyspellchecker | (default) | Not in dictionary (proper nouns, acronyms) |
+| Grammar errors | LanguageTool | `--grammar` | Agreement, articles, verb forms |
+| Suspicious lang tags | pyspellchecker | `--mismatch` | Text has many errors in declared language but few in another |
+| Missing lang tags | (dump only) | `--dump --no-lang` | Literals with no `@xx` tag |
 
-## Hunspell vs LanguageTool
+## Custom Dictionaries
 
-- **Hunspell is stricter on accents.** "Padel" without accent is flagged in
-  Spanish. LanguageTool may or may not flag it depending on context.
-- **Hunspell doesn't do grammar.** It won't catch "The bus stop" tagged `@es`
-  as a grammar error — but `--mismatch` will catch it as a lang-tag mismatch.
-- **Hunspell is ~100x faster.** A repo with 500 literals takes ~1 second with
-  Hunspell vs ~5 minutes with LanguageTool.
+Ontologies use domain-specific terms (proper nouns, acronyms) that aren't in
+standard dictionaries. Add them to avoid false positives:
 
-## Technical Term Whitelist
+```bash
+# Inline
+python scripts/grammar_audit.py . --word pádel Straßenlaterne SOSA QUDT
 
-The script skips common ontology/Semantic Web acronyms (RDF, OWL, SKOS, SOSA,
-QUDT, etc.) and chemical formulas (HCHO, NOx, PM10, etc.) during spell-checking.
-Add project-specific terms by editing `TECHNICAL_WORDS` in the script.
+# From file (one word per line, # comments)
+python scripts/grammar_audit.py . --dict ontology_words.txt
+```
 
-## Supported Languages
-
-| Tool | Languages |
-|------|-----------|
-| Hunspell | 70+ languages (depends on installed dictionaries) |
-| LanguageTool | 30+ languages (built-in) |
-
-Common BCP47 tags are automatically mapped to the correct dictionary for both
-tools.
+The script also skips a built-in whitelist of Semantic Web terms (RDF, OWL,
+SKOS, SOSA, QUDT, etc.) and chemical formulas (HCHO, NOx, PM10, etc.).
 
 ## Standardized Report
 
@@ -193,13 +187,11 @@ examples is only a suggestion — always confirm with the user first.
    (ontology/*.owl, kos/*.ttl), then re-run the generator.
 
 4. **Language tags must match content.** French text tagged `@de` is wrong.
-   The audit flags mismatches with `--mismatch`.
+   Use `--mismatch` to detect these.
 
 5. **Review suggestions before applying.** Short labels, proper nouns, and
-   technical acronyms (SOSA, QUDT, GeoSPARQL, OWL, RDF, chemical formulas
-   like HCHO/NOx) often trigger false positives. Always verify suggestions
+   technical acronyms often trigger false positives. Always verify suggestions
    against domain knowledge before changing labels.
 
-6. **Hunspell unknown words ≠ errors.** Proper names ("Pádel") and domain
-   terms may not be in the dictionary. Add them to `TECHNICAL_WORDS` in the
-   script if they are correct.
+6. **Unknown word ≠ error.** Proper names and domain terms may not be in the
+   dictionary. Add them with `--word` or `--dict` if they are correct.
