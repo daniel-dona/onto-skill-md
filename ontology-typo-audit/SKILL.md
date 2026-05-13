@@ -12,14 +12,17 @@ Uses **rdflib** to parse any RDF serialization (Turtle, OWL, RDF/XML,
 N-Triples, JSON-LD, etc.) and **LanguageTool** to check every string literal
 in its declared language — supporting 30+ languages out of the box.
 
+**Single script:** `scripts/grammar_audit.py` does everything — extract,
+audit, report.
+
 ## What It Detects
 
-| Category | Examples | Script |
-|----------|----------|-------|
-| Spelling errors by lang tag | `Pista de Padel`@es → `Pista de Pádel` | `grammar_audit.py` |
-| Grammar errors by lang tag | Agreement errors, missing articles, verb forms | `grammar_audit.py` |
-| Suspicious lang tags | Spanish text tagged `@en` or vice versa | `grammar_audit.py` |
-| Missing lang tags | Literals without `@en`/`@es`/etc. | `rdf_extract.py --no-lang` |
+| Category | Examples |
+|----------|----------|
+| Spelling errors by lang tag | `Pista de Padel`@es → `Pista de Pádel` |
+| Grammar errors by lang tag | Agreement errors, missing articles, verb forms |
+| Suspicious lang tags | Spanish text tagged `@en` or vice versa |
+| Missing lang tags | Literals without `@en`/`@es`/etc. (`--dump --no-lang`) |
 
 ## Setup
 
@@ -39,13 +42,13 @@ pip install rdflib language-tool-python
 
 ## Workflow
 
-### 1. Explore: extract all string literals with lang tags
+### 1. Explore: dump all string literals with lang tags
 
 Discover what's in the repo — every literal, its language, subject, and
 predicate:
 
 ```bash
-python scripts/rdf_extract.py . --summary --no-lang
+python scripts/grammar_audit.py . --dump --no-lang
 ```
 
 Output (JSON to stdout, summary to stderr):
@@ -54,21 +57,28 @@ Output (JSON to stdout, summary to stderr):
 [
   {
     "file": "ontology/onto.ttl",
-    "subject": "http://example.com/onto#StreetLamp",
     "subject_short": ":StreetLamp",
-    "predicate": "http://www.w3.org/2000/01/rdf-schema#label",
     "predicate_short": "rdfs:label",
     "value": "Street Lamp",
     "lang": "en"
-  },
-  ...
+  }
 ]
+```
+
+```
+--- Summary ---
+  Files parsed:   12
+  Total literals: 247
+  By language:
+    en: 153
+    es: 89
+    (none): 5
 ```
 
 Save to file:
 
 ```bash
-python scripts/rdf_extract.py . -o literals.json --summary
+python scripts/grammar_audit.py . --dump -o literals.json
 ```
 
 ### 2. Audit grammar and spelling
@@ -101,29 +111,19 @@ The report groups issues by language and shows:
 ## How It Works
 
 ```
-┌─────────────────────┐
-│  RDF files in repo  │
-│  (.ttl, .owl, .rdf, │
-│   .nt, .jsonld, …)  │
-└────────┬────────────┘
-         │ rdflib parses all
-         ▼
-┌─────────────────────┐
-│  rdf_extract.py     │
-│  Extract all string  │
-│  literals with       │
-│  language tags       │
-└────────┬────────────┘
-         │
-         ▼
-┌─────────────────────┐
-│  grammar_audit.py   │
-│  LanguageTool per   │
-│  declared lang tag  │
-└────────┬────────────┘
-         ▼
-  GRAMMAR_REPORT.md
-  (or .json)
+┌────────────────────┐
+│  RDF files in repo │       ┌────────────────────┐
+│  (.ttl, .owl, .rdf,│──────►│  grammar_audit.py   │
+│   .nt, .jsonld, …) │       │                     │
+└────────────────────┘       │ 1. rdflib parse all  │
+                             │ 2. extract literals  │
+                             │ 3. LanguageTool per  │
+                             │    declared lang tag │
+                             │ 4. detect mismatches │
+                             │ 5. report (.md/.json)│
+                             └──────────┬───────────┘
+                                        ▼
+                              GRAMMAR_REPORT.md
 ```
 
 ## Supported Languages
