@@ -1,6 +1,6 @@
 ---
 name: ontology-oops-scan
-description: Validates OWL ontologies via the OOPS! REST API, detecting 40+ common design pitfalls with severity levels. Use before ontology releases or in CI to catch modelling mistakes early.
+description: Provides a script and instructions to validate OWL ontologies via the OOPS! REST API, detecting 40+ design pitfalls with severity levels. Use before ontology releases or in CI to catch modelling mistakes early.
 license: MIT
 compatibility: Requires bash, python3, rdflib, requests. OOPS! API is public and free (no key required).
 ---

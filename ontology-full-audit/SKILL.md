@@ -1,6 +1,6 @@
 ---
 name: ontology-full-audit
-description: Orchestrates a complete ontology evaluation across 7 dimensions (syntax, text, translations, SKOS, OWL design, data quality, logic). Use before any ontology release to produce a comprehensive audit report with prioritized recommendations.
+description: Provides instructions to orchestrate a complete ontology evaluation across 7 dimensions (syntax, text, translations, SKOS, OWL design, data quality, logic). Use before any ontology release to produce a comprehensive audit report with prioritized recommendations.
 license: MIT
 ---
 

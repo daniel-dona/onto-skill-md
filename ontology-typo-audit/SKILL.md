@@ -1,6 +1,6 @@
 ---
 name: ontology-typo-audit
-description: Checks grammar and spelling of every string literal in its declared language using LanguageTool (30+ languages). Detects lang-tag mismatches by comparing error rates across all languages present. Use when cleaning up ontology labels or before a release.
+description: Provides a script and instructions to audit grammar and spelling of every string literal in its declared language using LanguageTool (30+ languages). Detects lang-tag mismatches automatically. Use when cleaning up ontology labels or before a release.
 license: MIT
 compatibility: Requires python3, rdflib, language-tool-python
 ---

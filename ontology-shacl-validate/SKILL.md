@@ -1,6 +1,6 @@
 ---
 name: ontology-shacl-validate
-description: Validates RDF instance data against SHACL shapes, auto-generating minimal shapes from OWL axioms if none exist. Use when checking data quality or when instance data must conform to a schema.
+description: Provides a script and instructions to validate instance data against SHACL shapes using pySHACL, auto-generating shapes from OWL axioms if needed. Use when checking data quality or enforcing schema constraints.
 license: MIT
 compatibility: Requires python3, rdflib, pyshacl
 ---
