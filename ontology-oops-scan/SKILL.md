@@ -1,6 +1,6 @@
 ---
 name: ontology-oops-scan
-description: Validates OWL ontologies via the OOPS! (OntOlogy Pitfall Scanner) REST API. Detects 40+ common design pitfalls (missing annotations, missing disjointness, equivalent properties, inverse relationships, etc.) with severity levels. Uses rdflib to merge and serialize the repo's RDF files before submission. Use before ontology releases or as part of CI.
+description: Validates OWL ontologies via the OOPS! REST API, detecting 40+ common design pitfalls with severity levels. Use before ontology releases or in CI to catch modelling mistakes early.
 license: MIT
 compatibility: Requires bash, python3, rdflib, requests. OOPS! API is public and free (no key required).
 ---

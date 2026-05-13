@@ -1,6 +1,6 @@
 ---
 name: ontology-full-audit
-description: Complete ontology evaluation guide. Describes what to check, in what order, pass/fail criteria, and how to interpret findings. The agent performs the analysis using the other skills as tools.
+description: Orchestrates a complete ontology evaluation across 7 dimensions (syntax, text, translations, SKOS, OWL design, data quality, logic). Use before any ontology release to produce a comprehensive audit report with prioritized recommendations.
 license: MIT
 ---
 

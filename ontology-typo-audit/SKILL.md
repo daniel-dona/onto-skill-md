@@ -1,6 +1,6 @@
 ---
 name: ontology-typo-audit
-description: Audits OWL/SKOS ontology repositories for grammar and spelling errors in string literals and wrong language tags. Uses rdflib for RDF parsing and LanguageTool for grammar checking in 30+ languages. General-purpose — not tied to any specific ontology or language pair.
+description: Checks grammar and spelling of every string literal in its declared language using LanguageTool (30+ languages). Detects lang-tag mismatches by comparing error rates across all languages present. Use when cleaning up ontology labels or before a release.
 license: MIT
 compatibility: Requires python3, rdflib, language-tool-python
 ---

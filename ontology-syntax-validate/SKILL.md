@@ -1,6 +1,6 @@
 ---
 name: ontology-syntax-validate
-description: Validates RDF syntax of all files in a repository using rapper (raptor2) or rdflib. Supports Turtle, RDF/XML, N-Triples, N-Quads, TriG, JSON-LD, and RDFa. Reports parse errors with file, line, column, and message.
+description: Validates RDF syntax of all files in a repository using rapper (raptor2) or rdflib. Supports Turtle, RDF/XML, N-Triples, N-Quads, TriG, JSON-LD, and RDFa. Use before any other ontology tool — if files don't parse, nothing else works.
 license: MIT
 compatibility: Requires rapper (apt install raptor2-utils) or rdflib (pip install rdflib)
 ---

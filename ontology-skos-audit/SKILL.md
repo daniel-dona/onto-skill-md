@@ -1,10 +1,6 @@
 ---
 name: ontology-skos-audit
-description: >-
-  Audits SKOS concept schemes for structural integrity — broken inScheme references,
-  missing prefLabels, duplicate labels, notation mismatches, orphan hierarchies,
-  and broken broader/narrower links. Uses rdflib to parse any RDF serialization.
-  General-purpose, not tied to any specific ontology.
+description: Audits SKOS concept schemes for structural integrity — broken inScheme references, missing prefLabels, duplicate labels, notation mismatches, orphan hierarchies, and broken broader/narrower links. Use when validating SKOS thesauri, taxonomies, or concept schemes before release.
 license: MIT
 compatibility: Requires python3, rdflib
 ---

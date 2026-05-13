@@ -1,6 +1,6 @@
 ---
 name: ontology-sparql-endpoint
-description: Deploys a SPARQL 1.1 endpoint from RDF files using pyoxigraph. Merges all ontology files with rdflib, bulk-loads into a persistent store, and serves an HTTP endpoint with YASGUI web UI. Pure Python — no Rust toolchain, no binary downloads.
+description: Deploys a SPARQL 1.1 query+update endpoint with YASGUI web UI using pyoxigraph. Use when you need to explore, query, or share an ontology via HTTP without setting up a triple store.
 license: MIT
 compatibility: Requires python3, rdflib, pyoxigraph
 ---

@@ -1,6 +1,6 @@
 ---
 name: ontology-lang-coverage
-description: Checks that every RDF resource (class, property, SKOS concept) has labels in all expected project languages. Reports missing translations and resources with unexpected language tags. Uses only rdflib. Auto-detects languages or accepts explicit list.
+description: Verifies every RDF resource has labels in all expected project languages. Auto-detects or accepts an explicit language list. Use when maintaining multilingual ontologies to find missing translations before release.
 license: MIT
 compatibility: Requires python3, rdflib
 ---

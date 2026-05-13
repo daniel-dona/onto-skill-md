@@ -1,6 +1,6 @@
 ---
 name: ontology-reasoner-check
-description: Checks OWL ontology logical consistency using the HermiT reasoner (via owlready2). Reports unsatisfiable classes, inferred equivalences, and global inconsistency. No Java required — HermiT is bundled as a Python wheel.
+description: Checks OWL logical consistency using HermiT reasoner (owlready2). Detects unsatisfiable classes, inferred equivalences, and global inconsistency. Use before release to catch contradictory axioms that break reasoning.
 license: MIT
 compatibility: Requires python3, rdflib, owlready2
 ---
