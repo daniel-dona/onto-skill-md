@@ -1,171 +1,169 @@
 ---
 name: ontology-typo-audit
-description: Audits OWL ontologies, SKOS concept schemes and related RDF artefacts for typos, wrong language tags, and broken references. Covers English and Spanish. Use when cleaning up ontology repositories or before releases.
+description: Audits OWL/SKOS ontology repositories for grammar and spelling errors in string literals and wrong language tags. Uses rdflib for RDF parsing and LanguageTool for grammar checking in 30+ languages. General-purpose — not tied to any specific ontology or language pair.
 license: MIT
-compatibility: Requires bash, python3, grep, codespell, gh CLI (optional for PRs)
+compatibility: Requires python3, rdflib, language-tool-python
 ---
 
 # Ontology Typo Audit
 
-Systematic typo detection and correction for OWL/SKOS ontology repositories.
-Covers English misspellings, Spanish accent errors, wrong `@en`/`@es` tags,
-and dangling SKOS scheme references — all common issues in bilingual ontology
-projects.
+Systematic grammar and spelling audit for OWL/SKOS ontology repositories.
+Uses **rdflib** to parse any RDF serialization (Turtle, OWL, RDF/XML,
+N-Triples, JSON-LD, etc.) and **LanguageTool** to check every string literal
+in its declared language — supporting 30+ languages out of the box.
+
+**Single script:** `scripts/grammar_audit.py` does everything — extract,
+audit, report.
+
+## What It Detects
+
+| Category | Examples |
+|----------|----------|
+| Spelling errors by lang tag | `Pista de Padel`@es → `Pista de Pádel` |
+| Grammar errors by lang tag | Agreement errors, missing articles, verb forms |
+| Suspicious lang tags | Spanish text tagged `@en` or vice versa |
+| Missing lang tags | Literals without `@en`/`@es`/etc. (`--dump --no-lang`) |
 
 ## Setup
 
+Create a virtual environment and install dependencies:
+
 ```bash
-pip install codespell
+cd <your-ontology-repo>
+python3 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+
+pip install rdflib language-tool-python
 ```
+
+> **Note:** `language-tool-python` downloads a Java-based LanguageTool server
+> on first use (~200 MB). Requires a Java runtime (JRE 8+). On first run it
+> may take 30–60 seconds to initialize.
 
 ## Workflow
 
-### 1. Scan for English typos with codespell
+### 1. Explore: dump all string literals with lang tags
 
-Create a codespell config that ignores Spanish words (adapt as needed):
-
-```bash
-cat > /tmp/codespell_config << 'EOF'
-[codespell]
-skip = *.git,*.svg,*.png,*.jpg,*.pdf,*.pyc,*.js,webvowl,resources
-ignore-words = /tmp/spell_ignore.txt
-count = true
-EOF
-
-cat > /tmp/spell_ignore.txt << 'EOF'
-ser
-te
-fase
-lodge
-lod
-calle
-distrito
-municipio
-barrio
-provincia
-via
-portal
-autonomia
-carga
-composicion
-ocupacion
-intensidad
-velocidad
-recurrencia
-urbano
-validada
-tejidos
-soterrados
-compostaje
-potabilizacion
-depuracion
-desalacion
-descalcificacion
-reciclaje
-residuos
-sumideros
-desagues
-rejillas
-drenaje
-arquetas
-senalizaciones
-pilonas
-bolardos
-marquesinas
-quioscos
-jardineras
-papeleras
-ceniceros
-contenedores
-cubos
-balizas
-toboganes
-columpios
-aparcabicicletas
-EOF
-```
-
-Run per repo:
+Discover what's in the repo — every literal, its language, subject, and
+predicate:
 
 ```bash
-cd <repo> && codespell --config /tmp/codespell_config . 2>&1
+python scripts/grammar_audit.py . --dump --no-lang
 ```
 
-Manual review is required — codespell produces false positives on Spanish
-text. See [Spanish false-positives guide](references/spanish-false-positives.md).
+Output (JSON to stdout, summary to stderr):
 
-### 2. Deep inspection of class/property/skos URIs
+```json
+[
+  {
+    "file": "ontology/onto.ttl",
+    "subject_short": ":StreetLamp",
+    "predicate_short": "rdfs:label",
+    "value": "Street Lamp",
+    "lang": "en"
+  }
+]
+```
 
-Run the URI audit script — checks concept identifiers against their labels:
+```
+--- Summary ---
+  Files parsed:   12
+  Total literals: 247
+  By language:
+    en: 153
+    es: 89
+    (none): 5
+```
+
+Save to file:
 
 ```bash
-./scripts/audit-uris.sh <repo-path>
+python scripts/grammar_audit.py . --dump -o literals.json
 ```
 
-This extracts all OWL class/property URIs and SKOS concept IDs, then
-highlights mismatches between URI fragments and `rdfs:label`/`skos:prefLabel`.
+### 2. Audit grammar and spelling
 
-### 3. Check language tag consistency
+Run LanguageTool on every literal in its declared language:
 
 ```bash
-./scripts/audit-lang-tags.sh <repo-path>
+python scripts/grammar_audit.py . -o GRAMMAR_REPORT.md
 ```
 
-Detects inverted `@en`/`@es` tags, missing translations, and labels tagged
-with the wrong language.
-
-### 4. Check SKOS scheme references
+Filter by language:
 
 ```bash
-./scripts/audit-skos-refs.sh <repo-path>
+python scripts/grammar_audit.py . --lang es en -o report.md
 ```
 
-Finds `skos:inScheme` references to `ConceptScheme` URIs that are never
-defined in the same file.
-
-### 5. Generate report
+JSON output for CI:
 
 ```bash
-./scripts/report.sh <repo-path> > TYPOS.md
+python scripts/grammar_audit.py . -o grammar.json --format json
 ```
 
-Produces a Markdown table of all confirmed issues with file, line, typo and
-correction.
+The report groups issues by language and shows:
+- The literal text and its context
+- The grammar rule triggered and the error message
+- Suggested corrections
+- Which subjects/predicates are affected
+- ⚠️ Lang tag mismatch warnings (when text looks like a different language than its tag)
 
-### 6. Fix and commit
+## How It Works
 
-Apply corrections to **source files only** (ontology/*.owl, kos/*.ttl,
-examples/*.ttl), then propagate to auto-generated documentation:
-
-```bash
-./scripts/propagate-fixes.sh <repo-path>
+```
+┌────────────────────┐
+│  RDF files in repo │       ┌────────────────────┐
+│  (.ttl, .owl, .rdf,│──────►│  grammar_audit.py   │
+│   .nt, .jsonld, …) │       │                     │
+└────────────────────┘       │ 1. rdflib parse all  │
+                             │ 2. extract literals  │
+                             │ 3. LanguageTool per  │
+                             │    declared lang tag │
+                             │ 4. detect mismatches │
+                             │ 5. report (.md/.json)│
+                             └──────────┬───────────┘
+                                        ▼
+                              GRAMMAR_REPORT.md
 ```
 
-This replaces the same typo patterns in `documentation/` serializations
-(.ttl, .rdf, .nt, .jsonld) and HTML sections.
+## Supported Languages
+
+LanguageTool supports 30+ languages. Common BCP47 tags are automatically mapped:
+
+| Tag | Language | Tag | Language |
+|-----|----------|-----|----------|
+| `en` | English | `fr` | French |
+| `es` | Spanish | `de` | German |
+| `pt` | Portuguese | `it` | Italian |
+| `nl` | Dutch | `pl` | Polish |
+| `ca` | Catalan | `gl` | Galician |
+| `ja` | Japanese | `zh` | Chinese |
+| `ar` | Arabic | `ru` | Russian |
+| `ko` | Korean | `sv` | Swedish |
+| `uk` | Ukrainian | `ro` | Romanian |
+
+Full list: <https://dev.languagetool.org/languages>
 
 ## Important Rules
 
 1. **Never edit re-used namespace URIs.** Classes/properties from external
-   ontologies (e.g. `trafico#`, `sosa:`, `schema:`) must not be modified —
-   they belong to another ontology. Only fix labels/comments in *your*
-   serialization of them.
+   ontologies (e.g. `sosa:`, `schema:`, `dct:`) must not be modified — only
+   fix labels/comments in *your* serialization.
 
 2. **Changing SKOS concept URIs is a breaking change.** Fixing a typo in a
-   concept URI (e.g. `StreeLamp` → `StreetLamp`) means any data referencing
-   the old URI will break. Document this clearly in the PR and consider
-   setting up `owl:deprecated` + a new URI, or using `skos:exactMatch` to
-   the corrected URI.
+   concept URI means any data referencing the old URI will break. Document
+   this in the PR and consider `owl:deprecated` + new URI, or
+   `skos:exactMatch` to the corrected URI.
 
 3. **Fix source files, not auto-generated docs.** The `documentation/`
    directory is usually regenerated by Widoco or similar tools. Fix the
-   canonical source (ontology/*.owl, kos/*.ttl), then either re-run the
-   generator or manually propagate the same corrections to the serialized
-   files.
+   canonical source (ontology/*.owl, kos/*.ttl), then re-run the generator.
 
-4. **Spanish accent conventions.** For `skos:notation`, use unaccented forms
-   (e.g. `pista-de-padel`). For `skos:prefLabel`, use proper RAE orthography
-   (e.g. `Pista de Pádel`). URI fragments follow the notation convention.
+4. **Language tags must match content.** `"Underground station"@es` is wrong;
+   it should be `@en`. The grammar audit flags these as "lang tag mismatch"
+   when the text produces many errors in the declared language but few in
+   another.
 
-5. **Language tags must match content.** `"Underground station"@es` is wrong;
-   it should be `@en`. Always verify the text language matches the tag.
+5. **Review LanguageTool suggestions before applying.** Short labels
+   (proper nouns, acronyms, URI-style names) often trigger false positives.
+   The script already disables the noisiest rules, but always review.
