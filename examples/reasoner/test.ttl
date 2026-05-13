@@ -1,0 +1,50 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix : <http://example.com/reasoner#> .
+
+# =============================================================================
+# Example for ontology-reasoner-check skill
+# Issues demonstrated:
+#   1. :SquareCircle — logically impossible (subclass of both disjoint classes)
+#   2. owl:disjointWith makes :Square and :Circle mutually exclusive,
+#      so :SquareCircle (intersection) can never have instances.
+#   3. :Human and :Person — identical necessary+sufficient conditions,
+#      reasoner will infer equivalence.
+# =============================================================================
+
+: a owl:Ontology ;
+    rdfs:label "Reasoner Test Ontology"@en .
+
+# --- Disjoint classes (correct) ---
+:Square a owl:Class .
+:Circle a owl:Class .
+:Square owl:disjointWith :Circle .
+
+# --- UNSATISFIABLE: subclass of both disjoint classes ---
+:SquareCircle a owl:Class ;
+    rdfs:subClassOf :Square, :Circle ;
+    rdfs:label "SquareCircle"@en .
+
+# --- Redundant equivalent classes ---
+:Person a owl:Class ;
+    rdfs:subClassOf :LivingThing ;
+    owl:equivalentClass [
+        rdf:type owl:Restriction ;
+        owl:onProperty :hasName ;
+        owl:minCardinality 1
+    ] .
+
+:Human a owl:Class ;
+    rdfs:subClassOf :LivingThing ;
+    owl:equivalentClass [
+        rdf:type owl:Restriction ;
+        owl:onProperty :hasName ;
+        owl:minCardinality 1
+    ] .
+
+:LivingThing a owl:Class .
+:hasName a owl:DatatypeProperty ;
+    rdfs:domain :LivingThing ;
+    rdfs:range xsd:string .

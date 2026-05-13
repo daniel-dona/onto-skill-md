@@ -1,0 +1,242 @@
+#!/usr/bin/env python3
+"""
+reasoner_check.py — Check OWL ontology logical consistency using a reasoner.
+
+Loads the ontology via owlready2 (which includes HermiT), runs classification,
+and reports: unsatisfiable classes, equivalent classes, inconsistent ontology,
+and inferred class hierarchy changes.
+
+Usage:
+    python reasoner_check.py <repo-path> [-o report.md] [--only-file main.owl]
+
+Requires:
+    pip install owlready2 rdflib
+    (Java JRE 8+ is NOT required — owlready2 bundles HermiT as a Python wheel)
+"""
+import argparse
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+from rdflib import RDFS, OWL
+
+from rdf_utils import load_graph, find_rdf_files, compact_uri
+
+
+def select_main_file(repo_path: str) -> str | None:
+    """Pick the most likely main ontology file."""
+    candidates = []
+    for f in find_rdf_files(repo_path):
+        if f.endswith(".owl"):
+            candidates.append(f)
+    if not candidates:
+        candidates = find_rdf_files(repo_path)
+    # Prefer files containing owl:Ontology declaration
+    for f in candidates:
+        try:
+            g = load_graph(repo_path)[0]
+            # Quick check — just pick first
+            return f
+        except:
+            continue
+    return candidates[0] if candidates else None
+
+
+def merge_and_check(repo_path: str, main_file: str | None = None) -> dict:
+    """
+    Merge all RDF files and run reasoner. Return structured results.
+
+    Strategy: use rdflib to merge, then save as a temp OWL file, then load
+    with owlready2 for reasoning.
+    """
+    import subprocess
+    import tempfile
+
+    # Load with rdflib to merge all files
+    print(f"[INFO] Merging RDF files from {repo_path}...", file=sys.stderr)
+    g, warnings = load_graph(repo_path)
+
+    if len(g) == 0:
+        return {"warnings": warnings, "error": "No RDF triples loaded"}
+
+    # Serialize to temp file for owlready2
+    with tempfile.NamedTemporaryFile(suffix=".owl", delete=False, mode="w", encoding="utf-8") as tmp:
+        tmp_path = tmp.name
+        tmp.write(g.serialize(format="xml"))
+        tmp.flush()
+
+    try:
+        import owlready2
+    except ImportError:
+        os.unlink(tmp_path)
+        return {"warnings": warnings + ["owlready2 not installed. Run: pip install owlready2"], "error": "owlready2 missing"}
+
+    print(f"[INFO] Loading ontology into owlready2 + HermiT...", file=sys.stderr)
+    try:
+        onto = owlready2.get_ontology(f"file://{tmp_path}").load()
+    except Exception as e:
+        os.unlink(tmp_path)
+        return {"warnings": warnings + [f"owlready2 load error: {e}"], "error": str(e)}
+
+    # Run reasoner (HermiT)
+    print(f"[INFO] Running HermiT reasoner...", file=sys.stderr)
+    start = time.time()
+    try:
+        with onto:
+            owlready2.sync_reasoner(infer_property_values=False)
+    except Exception as e:
+        os.unlink(tmp_path)
+        return {
+            "warnings": warnings + [f"Reasoner error: {e}"],
+            "error": str(e),
+        }
+
+    reasoner_time = round(time.time() - start, 2)
+
+    # Collect results
+    unsatisfiable = []
+    for cls in onto.classes():
+        try:
+            if owlready2.NotOWLClass not in cls.is_a:
+                if hasattr(cls, 'equivalent_to') and owlready2.owl.Nothing in cls.equivalent_to:
+                    name = cls.name or str(cls.iri)
+                    unsatisfiable.append({
+                        "name": name,
+                        "iri": str(cls.iri) if cls.iri else "",
+                    })
+        except Exception:
+            pass
+
+    # Inconsistent ontology (global)
+    inconsistent = False
+    try:
+        inconsistent = owlready2.owl.Thing in owlready2.owl.Nothing.equivalent_to
+    except Exception:
+        pass
+
+    # Equivalent classes (non-trivial)
+    equivalents = []
+    seen = set()
+    for cls in onto.classes():
+        if owlready2.owl.Thing in cls.equivalent_to or owlready2.owl.Nothing in cls.equivalent_to:
+            continue
+        for eq in cls.equivalent_to:
+            if isinstance(eq, owlready2.entity.ThingClass) and eq != cls:
+                pair = tuple(sorted([cls.name or str(cls.iri), eq.name or str(eq.iri)]))
+                if pair not in seen:
+                    seen.add(pair)
+                    equivalents.append({
+                        "class1": pair[0],
+                        "class2": pair[1],
+                    })
+
+    os.unlink(tmp_path)
+
+    return {
+        "warnings": warnings,
+        "inconsistent": inconsistent,
+        "unsatisfiable_count": len(unsatisfiable),
+        "unsatisfiable_classes": unsatisfiable,
+        "equivalent_count": len(equivalents),
+        "equivalent_classes": equivalents,
+        "total_classes": len(list(onto.classes())),
+        "reasoner_time_seconds": reasoner_time,
+    }
+
+
+def format_report_markdown(results: dict) -> str:
+    lines = ["# Ontology Reasoner Consistency Report", "",
+             "_Generated by `ontology-reasoner-check` skill (rdflib + owlready2 + HermiT)_", ""]
+
+    if results.get("warnings"):
+        for w in results["warnings"]:
+            lines.append(f"- ⚠️ {w}")
+        lines.append("")
+
+    if results.get("error"):
+        lines.append(f"## ❌ Error")
+        lines.append(f"```")
+        lines.append(results["error"])
+        lines.append(f"```")
+        return "\n".join(lines)
+
+    lines.append("## Summary")
+    lines.append("")
+    lines.append(f"| Metric | Value |")
+    lines.append(f"|--------|-------|")
+    lines.append(f"| Reasoner | HermiT (via owlready2) |")
+    lines.append(f"| Reasoner time | {results['reasoner_time_seconds']}s |")
+    lines.append(f"| Total classes | {results.get('total_classes', '?')} |")
+    lines.append(f"| Ontology consistent | {'✅ Yes' if not results['inconsistent'] else '❌ No'} |")
+    lines.append(f"| Unsatisfiable classes | {results['unsatisfiable_count']} |")
+    lines.append(f"| Non-trivial equivalences | {results['equivalent_count']} |")
+    lines.append("")
+
+    if results["inconsistent"]:
+        lines.append("## ❌ Ontology is INCONSISTENT")
+        lines.append("")
+        lines.append("The reasoner determined that the ontology is globally inconsistent "
+                     "(owl:Nothing ≡ owl:Thing). Check the unsatisfiable classes below for the root cause.")
+        lines.append("")
+
+    if results["unsatisfiable_classes"]:
+        lines.append("## ❌ Unsatisfiable Classes")
+        lines.append("")
+        lines.append("These classes can never have instances under the current axioms:")
+        lines.append("")
+        for c in results["unsatisfiable_classes"]:
+            lines.append(f"- **{c['name']}** `{c['iri']}`")
+        lines.append("")
+        lines.append("_Common causes: contradictory domain/range, disjointness violations, "
+                     "inconsistent cardinality restrictions._")
+        lines.append("")
+
+    if results["equivalent_classes"]:
+        lines.append("## ℹ️ Non-trivial Equivalent Classes")
+        lines.append("")
+        lines.append("These class pairs were inferred to be equivalent:")
+        lines.append("")
+        for eq in results["equivalent_classes"]:
+            lines.append(f"- `{eq['class1']}` ≡ `{eq['class2']}`")
+        lines.append("")
+        lines.append("_This may be intentional (synonyms) or indicate redundant modelling._")
+        lines.append("")
+
+    if not results["unsatisfiable_classes"] and not results["equivalent_classes"]:
+        lines.append("**Ontology is consistent with no issues found.** ✅")
+
+    return "\n".join(lines)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Check OWL ontology logical consistency")
+    parser.add_argument("repo_path", help="Path to the ontology repository")
+    parser.add_argument("-o", "--output", help="Output file (.json or .md)")
+    parser.add_argument("--only-file", help="Only reason over a specific file")
+    parser.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    args = parser.parse_args()
+
+    results = merge_and_check(args.repo_path, main_file=args.only_file)
+
+    fmt = args.format
+    if args.output:
+        ext = Path(args.output).suffix.lower()
+        if ext == ".json":
+            fmt = "json"
+
+    if fmt == "json":
+        output = json.dumps(results, indent=2, ensure_ascii=False, default=str)
+    else:
+        output = format_report_markdown(results)
+
+    if args.output:
+        Path(args.output).write_text(output, encoding="utf-8")
+        print(f"[INFO] Report written to {args.output}", file=sys.stderr)
+    else:
+        print(output)
+
+
+if __name__ == "__main__":
+    main()

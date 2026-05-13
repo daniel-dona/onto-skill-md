@@ -1,0 +1,30 @@
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix : <http://example.com/typo#> .
+
+# =============================================================================
+# Example for ontology-typo-audit skill
+# Issues demonstrated:
+#   1. @es "Pista de Padel" — missing accent: should be "Pista de Pádel"
+#   2. @es "Lampara de calle" — missing accent: should be "Lámpara"
+#   3. @en "pubic transport" — typo: should be "public transport"
+#   4. @es "The bus stop" — wrong lang tag (English text tagged @es)
+#   5. @es "Centro de Salud" — correct, no issue
+# =============================================================================
+
+:StreetLamp a skos:Concept ;
+    skos:prefLabel "Street Lamp"@en ;
+    skos:prefLabel "Lampara de calle"@es ;      # ← missing accent: Lámpara
+    skos:definition "Una lampara en la via publica"@es .  # ← 2 accent errors
+
+:PadelCourt a skos:Concept ;
+    skos:prefLabel "Padel Court"@en ;
+    skos:prefLabel "Pista de Padel"@es .        # ← missing accent: Pádel
+
+:Transport a skos:Concept ;
+    skos:prefLabel "pubic transport"@en ;       # ← typo: should be public
+    skos:prefLabel "The bus stop"@es .          # ← wrong lang tag (English @es)
+
+:HealthCenter a skos:Concept ;
+    skos:prefLabel "Health Center"@en ;
+    skos:prefLabel "Centro de Salud"@es .       # ← correct, no issue

@@ -1,0 +1,15 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix : <http://example.com/syntax#> .
+
+# =============================================================================
+# Deliberate syntax errors:
+#   1. Missing closing quote on line 14
+#   2. Missing semicolon on line 18
+# =============================================================================
+
+:BrokenClass a owl:Class ;
+    rdfs:label "Unclosed string@en ;     # ← missing closing quote
+
+:AnotherClass a owl:Class
+    rdfs:label "Forgot semicolon"@en .   # ← missing ; after owl:Class
