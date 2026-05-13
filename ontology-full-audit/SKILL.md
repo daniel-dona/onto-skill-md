@@ -6,115 +6,130 @@ license: MIT
 
 # Ontology Full Audit
 
-A complete audit of an ontology repository. Each dimension must be checked in
-order, and findings reported with severity: ❌ error (blocks release),
-⚠️ warning (should fix), ℹ️ info (advisory).
+A complete audit of an ontology repository. This skill does **not** have its
+own scripts — it is an **orchestrator** that runs the other 7 skills in
+sequence and combines their results into a unified report.
 
-## Prerequisites
-
-Each skill manages its own environment and dependencies. Refer to the
-individual skill's `SKILL.md` for setup instructions. Run the dimensions in
-order — syntax validation must pass before any other dimension.
+> **⚠️ Read and follow each skill's own `SKILL.md` before running it.**
+> Each skill has its own setup (venv, dependencies, CLI flags) and important
+> rules. This document only tells you *what order* to run them and *what to
+> report* — the *how* is in each skill's documentation.
 
 ---
 
-## Audit Dimensions
+## Prerequisites
+
+**This skill has no dependencies of its own.** Each sub-skill manages its own
+environment. Before starting the audit:
+
+1. **Read the `SKILL.md` of every skill listed below.**
+2. **Set up each skill's environment as described in its own Setup section.**
+   Do **not** guess or assume — every skill documents exactly what it needs.
+3. **Run the dimensions in order.** Syntax validation must pass before anything
+   else, because files that don't parse cannot be audited.
+
+---
+
+## Audit Dimensions (run in this order)
 
 ### 1. Syntax — `ontology-syntax-validate`
 
 **Every RDF file must parse.**
 
-Walk the repository. For every `.ttl`, `.owl`, `.rdf`, `.rdfs`, `.nt`,
-`.jsonld`, `.n3`, `.trig`, `.nq` file, attempt to parse it as RDF. Any file
-that fails to parse is a syntax error — report file path, line, and the
-parser's error message.
+**👉 Read `ontology-syntax-validate/SKILL.md`** for setup, usage, and the
+`--format report` flag that produces standardized JSON output.
 
-- ❌ Any parse error → block. Nothing else can be checked until all files parse.
+If any file fails to parse, **stop here**. Nothing else can be checked until
+all files parse cleanly.
 
-## 2. Text Quality — `ontology-typo-audit`
+- ❌ Any parse error → block. Fix syntax before continuing.
+
+---
+
+### 2. Text Quality — `ontology-typo-audit`
 
 **Every string literal must have correct grammar and spelling in its declared
 language.**
 
-Extract every string literal with a language tag (`rdfs:label`, `rdfs:comment`,
-`skos:prefLabel`, `skos:altLabel`, `skos:definition`, and any other annotation
-property). For each literal, check grammar and spelling in the language
-indicated by its tag. Report the text, the error, and a suggested correction.
+**👉 Read `ontology-typo-audit/SKILL.md`** for setup (requires
+`language-tool-python`), supported languages, `--lang` filtering, and
+important caveats about false positives on technical terms.
 
-The set of languages checked is whatever is present in the data — no
-assumptions about which languages exist. If a literal tagged `@X` produces
-many errors in language X but few in language Y, flag a possible lang-tag
-mismatch (text may be tagged with the wrong language).
+- ⚠️ Grammar/spelling errors → review suggestions; short labels and proper
+  names may be false positives.
 
-- ⚠️ Grammar/spelling errors → review suggestions; short labels and proper names
-  may be false positives.
+---
 
-## 3. Translation Completeness — `ontology-lang-coverage`
+### 3. Translation Completeness — `ontology-lang-coverage`
 
 **Every labelled resource must have labels in every expected project
 language.**
 
-The expected languages must be declared explicitly (not guessed). For each
-resource carrying labels, check that it has at least one label in every
-expected language. Also flag labels in languages outside the expected set.
+**👉 Read `ontology-lang-coverage/SKILL.md`** for setup, the `--lang` flag
+(required — do not auto-detect), and what counts as coverage.
 
 - ⚠️ Missing translation → add the label or document the gap.
 - ℹ️ Extra language → may be accidental; verify.
 
-## 4. SKOS Integrity — `ontology-skos-audit`
+---
+
+### 4. SKOS Integrity — `ontology-skos-audit`
 
 **If SKOS concept schemes are present, they must be structurally sound.**
 
-Check that: every `skos:Concept` has a `skos:inScheme` pointing to a defined
-`skos:ConceptScheme`; every scheme has at least one concept; `skos:prefLabel`
-is present and unique per scheme+language; `skos:notation` is consistent with
-URI naming; `skos:broader`/`skos:narrower` links point to existing concepts.
+**👉 Read `ontology-skos-audit/SKILL.md`** for setup, the full list of 8
+checks with severities, and rules about `prefLabel` uniqueness and
+notation conventions.
 
 - ❌ Missing `prefLabel`, undefined scheme reference, duplicate `prefLabel`
   within a scheme → fix.
 - ⚠️ Orphan concept (no `inScheme`), empty scheme, notation mismatch → review.
 
-## 5. OWL Design Pitfalls — `ontology-oops-scan`
+---
+
+### 5. OWL Design Pitfalls — `ontology-oops-scan`
 
 **The ontology must be free of common modelling mistakes.**
 
-Check for: missing human-readable annotations on classes and properties;
-classes that should be disjoint but aren't; properties missing domain or range;
-properties with multiple domains/ranges (interpreted as intersection in OWL,
-usually a bug); properties missing their inverse declaration; naming convention
-inconsistencies across the ontology.
+**👉 Read `ontology-oops-scan/SKILL.md`** for setup (requires `requests`),
+the `--pitfalls` filter, `--timeout` for large ontologies, and `--dry-run`
+for testing serialization before hitting the API.
 
-- ❌ Multiple domains/ranges on a property → fix immediately (OWL intersection
-  semantics are almost never intended).
-- ⚠️ Missing disjointness, missing domain/range, missing inverse, unconnected
-  elements → fix where applicable; some may be intentional.
+- ❌ Multiple domains/ranges on a property (P21) → fix immediately.
+- ⚠️ Missing disjointness, domain/range, inverse, unconnected elements →
+  fix where applicable; some may be intentional.
 - ℹ️ Missing annotations, naming inconsistencies → improve progressively.
 
-## 6. Data Validation — `ontology-shacl-validate`
+---
+
+### 6. Data Validation — `ontology-shacl-validate`
 
 **If instance data exists with SHACL shapes, instances must conform.**
 
-If shapes are defined (`sh:NodeShape`, `sh:PropertyShape`), validate every
-instance against its target shape. If no shapes exist but the schema implies
-constraints (cardinality, datatype), check instances against those constraints.
+**👉 Read `ontology-shacl-validate/SKILL.md`** for setup (requires
+`pyshacl`), how to provide custom shapes with `--shapes`, and what the
+auto-generated shapes cover (minimal — cardinality only).
 
 - ❌ Constraint violation → fix the data or adjust the shape.
 - ℹ️ If no instances or no shapes exist, this dimension is trivially satisfied.
 
-## 7. Logical Consistency — `ontology-reasoner-check`
+---
+
+### 7. Logical Consistency — `ontology-reasoner-check`
 
 **The ontology must not contain logical contradictions.**
 
-Using an OWL 2 DL reasoner, check for: unsatisfiable classes (can never have
-instances under current axioms); non-trivial inferred equivalences (two
-different classes that the reasoner proves are the same); global inconsistency
-(every class is unsatisfiable — the whole ontology is contradictory).
+**👉 Read `ontology-reasoner-check/SKILL.md`** for setup (requires
+`owlready2`), the `--only-file` option, and performance notes for large
+ontologies.
 
-- ❌ Unsatisfiable classes or global inconsistency → block. Find and fix the
-  contradictory axioms (usually disjointness combined with subclassing,
-  conflicting domain/range, or inconsistent cardinalities).
-- ℹ️ Inferred equivalences → review; may be intentional synonyms or modelling
-  redundancy.
+- ❌ Unsatisfiable classes or global inconsistency → block. Fix contradictory
+  axioms (usually disjointness + subclassing, conflicting domain/range, or
+  inconsistent cardinalities).
+- ℹ️ Inferred equivalences → review; may be intentional synonyms or
+  modelling redundancy.
+
+---
 
 ## Reporting
 
@@ -124,7 +139,8 @@ After completing all dimensions, produce a single report with:
    counts split by severity.
 
 2. **Detailed findings** — per dimension, list each issue with file, element,
-   severity, description, and suggestion.
+   severity, description, and suggestion. Use the `--format report` JSON
+   output from each skill — all 7 skills produce the same standardized schema.
 
 3. **Recommendations** — prioritised list of actions: errors first, then
    warnings, then info items.
@@ -135,4 +151,3 @@ After completing all dimensions, produce a single report with:
 any report or output file, ask the user where to save it (e.g. `-o ../report.md`
 or an absolute path outside the repo). The default output path in script
 examples is only a suggestion — always confirm with the user first.
-
