@@ -2,23 +2,19 @@
 """
 grammar_audit.py — Audit string literals for spelling/grammar errors.
 
-Primary: Hunspell via ctypes (autodetected or compiled from source).
-Optional: LanguageTool for grammar (--grammar).
+Spell checker: Hunspell via ctypes (compiled from source or system).
+Auto-downloads dictionaries from LibreOffice based on the project's
+language tags. If no lang tags found, defaults to English.
 
-The script looks for libhunspell in:
-  1. System paths (/usr/lib, /usr/local/lib, etc.)
-  2. HUNSPELL_PREFIX env var (set by build_hunspell.sh)
-  3. ~/.local/share/hunspell-built/ (build_hunspell.sh default)
-
-If not found, prints instructions to run build_hunspell.sh.
+Grammar checker: LanguageTool (optional --grammar).
 
 Usage:
-    python grammar_audit.py <repo-path> [-o report.md] [--lang es en]
+    python grammar_audit.py <repo-path> [-o report.md]
 
 Requires:
     pip install rdflib
     libhunspell — run scripts/build_hunspell.sh if not on system
-    Optional: pip install language-tool-python  (for --grammar)
+    Optional: pip install language-tool-python (for --grammar)
 """
 import argparse
 import ctypes
@@ -28,6 +24,7 @@ import json
 import os
 import re
 import sys
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -37,11 +34,179 @@ from rdf_utils import find_rdf_files, compact_uri
 
 
 # ---------------------------------------------------------------------------
-# Literal extraction
+# LibreOffice dictionary download map
+# dict_name → LO repo subdirectory
+# ---------------------------------------------------------------------------
+
+DICT_DOWNLOAD_MAP = {
+    "af_ZA": "af_ZA",
+    "an_ES": "an_ES",
+    "ar": "ar",
+    "as_IN": "as_IN",
+    "be_BY": "be-official",
+    "bg_BG": "bg_BG",
+    "bn_BD": "bn_BD",
+    "bo": "bo",
+    "br_FR": "br_FR",
+    "bs_BA": "bs_BA",
+    "ca": "ca",
+    "cs_CZ": "cs_CZ",
+    "da_DK": "da_DK",
+    "de_AT_frami": "de",
+    "de_CH_frami": "de",
+    "de_DE_frami": "de",
+    "el_GR": "el_GR",
+    "en_AU": "en",
+    "en_CA": "en",
+    "en_GB": "en",
+    "en_US": "en",
+    "en_ZA": "en",
+    "eo": "eo",
+    "es_AR": "es",
+    "es_BO": "es",
+    "es_CL": "es",
+    "es_CO": "es",
+    "es_CR": "es",
+    "es_CU": "es",
+    "es_DO": "es",
+    "es_EC": "es",
+    "es_ES": "es",
+    "es_GQ": "es",
+    "es_GT": "es",
+    "es_HN": "es",
+    "es_MX": "es",
+    "es_NI": "es",
+    "es_PA": "es",
+    "es_PE": "es",
+    "es_PH": "es",
+    "es_PR": "es",
+    "es_PY": "es",
+    "es_SV": "es",
+    "es_US": "es",
+    "es_UY": "es",
+    "es_VE": "es",
+    "et_EE": "et_EE",
+    "fa_IR": "fa-IR",
+    "fr": "fr_FR",
+    "gd_GB": "gd_GB",
+    "gl_ES": "gl",
+    "gu_IN": "gu_IN",
+    "gug": "gug",
+    "he_IL": "he_IL",
+    "hi_IN": "hi_IN",
+    "hr_HR": "hr_HR",
+    "hu_HU": "hu_HU",
+    "id_ID": "id",
+    "is": "is",
+    "it_IT": "it_IT",
+    "kmr_Latn": "kmr_Latn",
+    "kn_IN": "kn_IN",
+    "ko_KR": "ko_KR",
+    "lo_LA": "lo_LA",
+    "lt_LT": "lt",
+    "lv_LV": "lv_LV",
+    "mn_MN": "mn_MN",
+    "mr_IN": "mr_IN",
+    "ne_NP": "ne_NP",
+    "nl_NL": "nl_NL",
+    "nb_NO": "no",
+    "nn_NO": "no",
+    "oc_FR": "oc_FR",
+    "or_IN": "or_IN",
+    "pa_IN": "pa_IN",
+    "pl_PL": "pl_PL",
+    "pt_BR": "pt_BR",
+    "pt_PT": "pt_PT",
+    "ro_RO": "ro",
+    "ru_RU": "ru_RU",
+    "sa_IN": "sa_IN",
+    "si_LK": "si_LK",
+    "sk_SK": "sk_SK",
+    "sl_SI": "sl_SI",
+    "sq_AL": "sq_AL",
+    "sr": "sr",
+    "sv_SE": "sv_SE",
+    "sw_TZ": "sw_TZ",
+    "ta_IN": "ta_IN",
+    "te_IN": "te_IN",
+    "th_TH": "th_TH",
+    "tr_TR": "tr_TR",
+    "uk_UA": "uk_UA",
+    "vi_VN": "vi",
+    "zu_ZA": "zu_ZA",
+}
+
+DICT_BASE_URL = "https://raw.githubusercontent.com/LibreOffice/dictionaries/master"
+
+# BCP47 → preferred hunspell dict name
+BCP47_TO_DICT = {
+    "en": "en_US", "en-us": "en_US", "en-gb": "en_GB",
+    "es": "es_ES", "es-es": "es_ES", "es-419": "es_ANY", "es-ar": "es_AR",
+    "fr": "fr", "fr-fr": "fr",
+    "de": "de_DE_frami", "de-de": "de_DE_frami",
+    "de-at": "de_AT_frami", "de-ch": "de_CH_frami",
+    "pt": "pt_PT", "pt-pt": "pt_PT", "pt-br": "pt_BR",
+    "it": "it_IT", "it-it": "it_IT",
+    "nl": "nl_NL", "ru": "ru_RU", "ar": "ar",
+    "ca": "ca", "gl": "gl_ES", "ro": "ro_RO", "sv": "sv_SE",
+    "cs": "cs_CZ", "da": "da_DK", "el": "el_GR",
+    "fi": "fi_FI", "hu": "hu_HU", "ko": "ko_KR",
+    "no": "nb_NO", "nb": "nb_NO", "nn": "nn_NO",
+    "pl": "pl_PL", "sk": "sk_SK", "sl": "sl_SI",
+    "tr": "tr_TR", "uk": "uk_UA", "he": "he_IL",
+    "id": "id_ID", "vi": "vi_VN",
+    "bg": "bg_BG", "hr": "hr_HR", "et": "et_EE",
+    "lt": "lt_LT", "lv": "lv_LV", "fa": "fa_IR",
+    "hi": "hi_IN", "th": "th_TH", "eo": "eo",
+    "af": "af_ZA", "bn": "bn_BD", "gu": "gu_IN",
+    "kn": "kn_IN", "ml": None, "mr": "mr_IN",
+    "pa": "pa_IN", "si": "si_LK", "sw": "sw_TZ",
+    "ta": "ta_IN", "te": "te_IN", "zu": "zu_ZA",
+    "bs": "bs_BA", "br": "br_FR", "cy": None,
+    "ga": None, "gd": "gd_GB", "is": "is",
+    "km": None, "lo": "lo_LA", "mn": "mn_MN",
+    "ne": "ne_NP", "oc": "oc_FR", "or": "or_IN",
+    "sa": "sa_IN", "sq": "sq_AL", "sr": "sr",
+    "as": "as_IN", "bo": "bo", "ku": "kmr_Latn",
+}
+
+# Technical terms whitelist
+TECHNICAL_WORDS = frozenset({
+    "rdf", "rdfs", "owl", "skos", "xsd", "shacl", "sh", "sosa", "ssn",
+    "qudt", "geosparql", "voaf", "void", "dcat", "foaf", "schema", "dc",
+    "dcterms", "bibo", "frbr", "prov", "org", "time", "hydra", "ldp",
+    "owl2", "owlrl", "n3", "turtle", "ttl", "nt", "nquads", "nq", "trig",
+    "jsonld", "rdfa", "sparql",
+    "hcho", "nox", "sox", "pm10", "pm25", "co2", "ch4", "n2o", "o3",
+    "uri", "url", "urn", "iri", "bnode", "http", "https", "api", "json",
+    "xml", "html", "css", "isbn", "issn", "doi", "orcid",
+})
+
+LT_LANG_MAP = {
+    "en": "en-US", "en-us": "en-US", "en-gb": "en-GB",
+    "es": "es", "es-es": "es", "es-419": "es",
+    "fr": "fr", "fr-fr": "fr",
+    "de": "de-DE", "de-de": "de-DE",
+    "pt": "pt-PT", "pt-pt": "pt-PT", "pt-br": "pt-BR",
+    "it": "it", "nl": "nl", "pl": "pl", "ru": "ru", "uk": "uk",
+    "ja": "ja", "zh": "zh-CN", "zh-cn": "zh-CN",
+    "ar": "ar", "ca": "ca", "cs": "cs", "da": "da", "el": "el",
+    "fi": "fi", "gl": "gl", "he": "he", "hi": "hi", "hu": "hu",
+    "ko": "ko", "no": "no", "nb": "no", "ro": "ro", "sk": "sk",
+    "sl": "sl", "sv": "sv", "tl": "tl", "tr": "tr", "fa": "fa",
+}
+
+DEFAULT_DISABLED_RULES = {}
+_lt_cache: dict = {}
+LT_MIN_LENGTH_DEFAULT = 10
+DEFAULT_WORKERS = 4
+
+
+# ---------------------------------------------------------------------------
+# Literal extraction + lang detection
 # ---------------------------------------------------------------------------
 
 def extract_literals(repo_path: str, include_no_lang: bool = False) -> list[dict]:
-    """Parse all RDF files and return string literals with optional lang tags."""
     results = []
     rdf_files = find_rdf_files(repo_path)
     if not rdf_files:
@@ -80,110 +245,129 @@ def extract_literals(repo_path: str, include_no_lang: bool = False) -> list[dict
     return results
 
 
+def detect_languages(literals: list[dict]) -> set[str]:
+    """Extract unique BCP47 language tags from literals."""
+    langs = set()
+    for lit in literals:
+        if lit["lang"]:
+            langs.add(lit["lang"].lower())
+    return langs
+
+
+# ---------------------------------------------------------------------------
+# Dictionary downloading
+# ---------------------------------------------------------------------------
+
+def get_dict_dir() -> str:
+    """Get the dictionary storage directory."""
+    prefix = os.environ.get(
+        "HUNSPELL_PREFIX",
+        os.path.expanduser("~/.local/share/hunspell-built"),
+    )
+    return os.path.join(prefix, "share", "hunspell")
+
+
+def download_dict(dict_name: str, dict_dir: str) -> bool:
+    """Download a .aff + .dic pair from LibreOffice. Returns True on success."""
+    lo_dir = DICT_DOWNLOAD_MAP.get(dict_name)
+    if not lo_dir:
+        return False
+
+    aff_url = f"{DICT_BASE_URL}/{lo_dir}/{dict_name}.aff"
+    dic_url = f"{DICT_BASE_URL}/{lo_dir}/{dict_name}.dic"
+    aff_path = os.path.join(dict_dir, f"{dict_name}.aff")
+    dic_path = os.path.join(dict_dir, f"{dict_name}.dic")
+
+    try:
+        os.makedirs(dict_dir, exist_ok=True)
+
+        # Download .aff
+        urllib.request.urlretrieve(aff_url, aff_path + ".tmp")
+        os.rename(aff_path + ".tmp", aff_path)
+
+        # Download .dic
+        urllib.request.urlretrieve(dic_url, dic_path + ".tmp")
+        os.rename(dic_path + ".tmp", dic_path)
+
+        aff_size = os.path.getsize(aff_path)
+        dic_size = os.path.getsize(dic_path)
+        print(f"  ✓ {dict_name} (.aff {aff_size // 1024}KB + .dic {dic_size // 1024}KB)",
+              file=sys.stderr)
+        return True
+    except Exception as e:
+        # Clean up partial files
+        for p in (aff_path + ".tmp", aff_path, dic_path + ".tmp", dic_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+        print(f"  ✗ {dict_name}: {e}", file=sys.stderr)
+        return False
+
+
+def ensure_dicts(langs: set[str], dict_dir: str) -> set[str]:
+    """
+    Ensure dictionaries exist for the given BCP47 language tags.
+    Downloads missing ones from LibreOffice.
+    Returns the set of BCP47 tags that now have dictionaries.
+    """
+    os.makedirs(dict_dir, exist_ok=True)
+    available = set()  # BCP47 tags that have dicts
+    to_download = []
+
+    for lang in sorted(langs):
+        dict_name = BCP47_TO_DICT.get(lang)
+        if dict_name is None:
+            continue
+
+        aff_path = os.path.join(dict_dir, f"{dict_name}.aff")
+        dic_path = os.path.join(dict_dir, f"{dict_name}.dic")
+
+        if os.path.isfile(aff_path) and os.path.isfile(dic_path):
+            available.add(lang)
+        elif dict_name in DICT_DOWNLOAD_MAP:
+            to_download.append((lang, dict_name))
+
+    if to_download:
+        print(f"[INFO] Downloading {len(to_download)} dictionaries from "
+              f"LibreOffice...", file=sys.stderr)
+        for lang, dict_name in to_download:
+            if download_dict(dict_name, dict_dir):
+                available.add(lang)
+
+    return available
+
+
 # ---------------------------------------------------------------------------
 # Hunspell via ctypes
 # ---------------------------------------------------------------------------
 
-# BCP47 → hunspell dict name
-HUNSPELL_DICT_MAP = {
-    "en": "en_US", "en-us": "en_US", "en-gb": "en_GB",
-    "es": "es_ES", "es-es": "es_ES", "es-419": "es_ANY", "es-ar": "es_AR",
-    "fr": "fr", "fr-fr": "fr",
-    "de": "de_DE_frami", "de-de": "de_DE_frami",
-    "de-at": "de_AT_frami", "de-ch": "de_CH_frami",
-    "pt": "pt_BR", "pt-pt": "pt_PT", "pt-br": "pt_BR",
-    "it": "it_IT", "it-it": "it_IT",
-    "nl": "nl_NL", "ru": "ru_RU", "ar": "ar",
-    "ca": "ca", "gl": "gl", "ro": "ro", "sv": "sv_SE",
-    "cs": "cs_CZ", "da": "da_DK", "el": "el_GR",
-    "fi": "fi_FI", "hu": "hu_HU", "ko": "ko_KR",
-    "no": "no", "nb": "no",
-    "pl": "pl_PL", "sk": "sk_SK", "sl": "sl_SI",
-    "tr": "tr_TR", "uk": "uk_UA", "he": "he_IL",
-    "id": "id_ID", "vi": "vi_VN",
-}
-
-# Where to look for libhunspell
 _LIB_SEARCH_PATTERNS = [
-    # Built by build_hunspell.sh (HUNSPELL_PREFIX or default)
     "{prefix}/lib/libhunspell-1.7.so",
     "{prefix}/lib/libhunspell-1.7.so.0",
     "{prefix}/lib/libhunspell-1.7.so.0.1.0",
     "{prefix}/lib/libhunspell-1.7.dylib",
     "{prefix}/lib/libhunspell-1.7.dll",
-    # System paths — Linux
     "/usr/lib/x86_64-linux-gnu/libhunspell-1.7.so*",
     "/usr/lib/x86_64-linux-gnu/libhunspell-1.6.so*",
     "/usr/lib/aarch64-linux-gnu/libhunspell-*.so*",
     "/usr/lib/libhunspell-*.so*",
     "/usr/local/lib/libhunspell*.so*",
-    # System paths — macOS
     "/opt/homebrew/lib/libhunspell*.dylib",
     "/usr/local/lib/libhunspell*.dylib",
-    # System paths — Windows/MSYS2
     "/mingw64/lib/libhunspell*.dll",
     "/mingw64/bin/libhunspell*.dll",
 ]
 
-# Where to look for dictionaries (.aff + .dic)
-_DICT_SEARCH_DIRS = [
-    # Built by build_hunspell.sh
-    "{prefix}/share/hunspell",
-    # System paths
-    "/usr/share/hunspell",
-    "/usr/share/myspell/dicts",
-    "/usr/local/share/hunspell",
-    # macOS Homebrew
-    "/opt/homebrew/share/hunspell",
-    # Flatpak
-    "/app/share/hunspell",
-    # User
-    os.path.expanduser("~/.local/share/hunspell"),
-]
-
-# Technical terms whitelist — skipped during spell-check
-TECHNICAL_WORDS = frozenset({
-    # W3C / Semantic Web
-    "rdf", "rdfs", "owl", "skos", "xsd", "shacl", "sh", "sosa", "ssn",
-    "qudt", "geosparql", "voaf", "void", "dcat", "foaf", "schema", "dc",
-    "dcterms", "bibo", "frbr", "prov", "org", "time", "hydra", "ldp",
-    "owl2", "owlrl", "n3", "turtle", "ttl", "nt", "nquads", "nq", "trig",
-    "jsonld", "rdfa", "sparql",
-    # Chemistry / physics
-    "hcho", "nox", "sox", "pm10", "pm25", "co2", "ch4", "n2o", "o3",
-    # Common acronyms
-    "uri", "url", "urn", "iri", "bnode", "http", "https", "api", "json",
-    "xml", "html", "css", "isbn", "issn", "doi", "orcid",
-})
-
-LT_LANG_MAP = {
-    "en": "en-US", "en-us": "en-US", "en-gb": "en-GB",
-    "es": "es", "es-es": "es", "es-419": "es",
-    "fr": "fr", "fr-fr": "fr",
-    "de": "de-DE", "de-de": "de-DE",
-    "pt": "pt-PT", "pt-pt": "pt-PT", "pt-br": "pt-BR",
-    "it": "it", "nl": "nl", "pl": "pl", "ru": "ru", "uk": "uk",
-    "ja": "ja", "zh": "zh-CN", "zh-cn": "zh-CN",
-    "ar": "ar", "ca": "ca", "cs": "cs", "da": "da", "el": "el",
-    "fi": "fi", "gl": "gl", "he": "he", "hi": "hi", "hu": "hu",
-    "ko": "ko", "no": "no", "nb": "no", "ro": "ro", "sk": "sk",
-    "sl": "sl", "sv": "sv", "tl": "tl", "tr": "tr", "fa": "fa",
-}
-
-DEFAULT_DISABLED_RULES = {}
-_lt_cache: dict = {}
-LT_MIN_LENGTH_DEFAULT = 10
-DEFAULT_WORKERS = 4
-
 
 class Hunspell:
-    """Hunspell spell checker via ctypes — no Python binding needed."""
+    """Hunspell spell checker via ctypes."""
 
-    def __init__(self):
+    def __init__(self, dict_dir: str):
         self._lib = None
         self._handles: dict[str, int] = {}
         self._available = False
-        self._dict_dirs: list[str] = []
+        self._dict_dir = dict_dir
         self._prefix = os.environ.get(
             "HUNSPELL_PREFIX",
             os.path.expanduser("~/.local/share/hunspell-built"),
@@ -191,8 +375,6 @@ class Hunspell:
         self._try_load()
 
     def _try_load(self):
-        """Find and load libhunspell shared library."""
-        # Expand prefix in search patterns
         patterns = []
         for p in _LIB_SEARCH_PATTERNS:
             if "{prefix}" in p:
@@ -200,7 +382,6 @@ class Hunspell:
             else:
                 patterns.append(p)
 
-        # Try ctypes.util.find_library first
         lib_name = ctypes.util.find_library("hunspell")
         if lib_name:
             patterns.insert(0, lib_name)
@@ -218,20 +399,11 @@ class Hunspell:
                 if not hasattr(lib, "Hunspell_create"):
                     continue
                 self._setup_api(lib)
-                # Quick test: create and destroy a handle
-                test_handle = lib.Hunspell_create(b"/dev/null", b"/dev/null")
-                lib.Hunspell_destroy(test_handle)
                 self._lib = lib
                 self._available = True
-                break
+                return
             except OSError:
                 continue
-
-        # Find dictionary directories
-        for d in _DICT_SEARCH_DIRS:
-            expanded = d.format(prefix=self._prefix) if "{prefix}" in d else d
-            if os.path.isdir(expanded) and glob.glob(os.path.join(expanded, "*.aff")):
-                self._dict_dirs.append(expanded)
 
     @staticmethod
     def _setup_api(lib):
@@ -265,18 +437,28 @@ class Hunspell:
         return self._available
 
     @property
+    def dict_dir(self) -> str:
+        return self._dict_dir
+
+    def available_dicts(self) -> set[str]:
+        """Return dict names that have .aff + .dic in dict_dir."""
+        if not os.path.isdir(self._dict_dir):
+            return set()
+        dicts = set()
+        for f in os.listdir(self._dict_dir):
+            if f.endswith(".aff"):
+                base = f[:-4]
+                dic = os.path.join(self._dict_dir, base + ".dic")
+                if os.path.isfile(dic):
+                    dicts.add(base)
+        return dicts
+
     def supported_languages(self) -> set[str]:
         """Return BCP47 tags for which we have dictionaries."""
-        if not self._dict_dirs:
-            return set()
-        available_dicts = set()
-        for d in self._dict_dirs:
-            for f in os.listdir(d):
-                if f.endswith(".aff"):
-                    available_dicts.add(f[:-4])
+        avail = self.available_dicts()
         return {
-            bcp47 for bcp47, dict_name in HUNSPELL_DICT_MAP.items()
-            if dict_name in available_dicts
+            bcp47 for bcp47, dict_name in BCP47_TO_DICT.items()
+            if dict_name and dict_name in avail
         }
 
     def _get_handle(self, lang: str) -> int | None:
@@ -284,20 +466,15 @@ class Hunspell:
         if lang_lower in self._handles:
             return self._handles[lang_lower]
 
-        dict_name = HUNSPELL_DICT_MAP.get(lang_lower)
+        dict_name = BCP47_TO_DICT.get(lang_lower)
         if not dict_name:
             self._handles[lang_lower] = None
             return None
 
-        aff_path, dic_path = None, None
-        for d in self._dict_dirs:
-            ca = os.path.join(d, dict_name + ".aff")
-            cd = os.path.join(d, dict_name + ".dic")
-            if os.path.isfile(ca) and os.path.isfile(cd):
-                aff_path, dic_path = ca, cd
-                break
+        aff_path = os.path.join(self._dict_dir, dict_name + ".aff")
+        dic_path = os.path.join(self._dict_dir, dict_name + ".dic")
 
-        if not aff_path:
+        if not os.path.isfile(aff_path) or not os.path.isfile(dic_path):
             self._handles[lang_lower] = None
             return None
 
@@ -312,18 +489,17 @@ class Hunspell:
             return None
 
     def add_word(self, word: str, lang: str, example: str | None = None):
-        """Add a word to the runtime dictionary for a language."""
         handle = self._get_handle(lang)
         if not handle:
             return
         encoded = word.encode("utf-8")
         if example:
-            self._lib.Hunspell_add_with_affix(handle, encoded, example.encode("utf-8"))
+            self._lib.Hunspell_add_with_affix(
+                handle, encoded, example.encode("utf-8"))
         else:
             self._lib.Hunspell_add(handle, encoded)
 
     def check(self, words: list[str], lang: str) -> list[dict]:
-        """Check a list of words. Returns issues for misspelled ones."""
         handle = self._get_handle(lang)
         if not handle:
             return []
@@ -352,7 +528,6 @@ class Hunspell:
         return issues
 
     def _get_suggestions(self, handle: int, word: str) -> list[str]:
-        """Get spelling suggestions for a word."""
         try:
             slst = ctypes.POINTER(ctypes.c_char_p)()
             n = self._lib.Hunspell_suggest(
@@ -377,33 +552,6 @@ class Hunspell:
                         pass
 
 
-# Global instance
-_hunspell: Hunspell | None = None
-
-
-def get_hunspell() -> Hunspell:
-    global _hunspell
-    if _hunspell is None:
-        _hunspell = Hunspell()
-        if _hunspell.available:
-            langs = sorted(_hunspell.supported_languages)
-            dicts = sorted(set(HUNSPELL_DICT_MAP[l] for l in langs))
-            print(f"[INFO] Hunspell loaded — {len(dicts)} dictionaries: "
-                  f"{', '.join(dicts)}", file=sys.stderr)
-        else:
-            print("[ERROR] libhunspell not found!", file=sys.stderr)
-            print("", file=sys.stderr)
-            print("Install hunspell one of:", file=sys.stderr)
-            print("  1. Build from source (no root):", file=sys.stderr)
-            print("       bash scripts/build_hunspell.sh", file=sys.stderr)
-            print("  2. System package:", file=sys.stderr)
-            print("       Debian/Ubuntu: sudo apt install libhunspell-dev hunspell-es", file=sys.stderr)
-            print("       Fedora:        sudo dnf install hunspell-devel hunspell-es", file=sys.stderr)
-            print("       macOS:         brew install hunspell", file=sys.stderr)
-            sys.exit(1)
-    return _hunspell
-
-
 # ---------------------------------------------------------------------------
 # LanguageTool (optional, for grammar)
 # ---------------------------------------------------------------------------
@@ -414,10 +562,6 @@ def _get_lt_tool(lang_code: str):
         try:
             import language_tool_python
             tool = language_tool_python.LanguageTool(lt_lang)
-            two_letter = lang_code[:2].lower() if len(lang_code) >= 2 else lang_code.lower()
-            disabled = DEFAULT_DISABLED_RULES.get(two_letter, set())
-            if disabled:
-                tool.disabled_rules.update(disabled)
             _lt_cache[lt_lang] = tool
         except Exception as e:
             print(f"[WARN] Cannot create LanguageTool for '{lt_lang}': {e}",
@@ -460,17 +604,13 @@ def check_with_languagetool(value: str, lang: str, max_errors: int = 5,
 # Lang-mismatch detection
 # ---------------------------------------------------------------------------
 
-def detect_lang_mismatch(value: str, lang: str, all_langs: set[str]) -> list[str]:
-    """Compare declared language against other languages in the repo."""
-    hs = get_hunspell()
+def detect_lang_mismatch(value: str, lang: str, all_langs: set[str],
+                         hs: Hunspell) -> list[str]:
     if len(value.strip()) < 20:
         return []
 
     words = re.findall(r"[\w']+", value)
     issues_declared = hs.check(words, lang)
-    if not issues_declared and lang not in hs.supported_languages:
-        return []
-
     error_count = len(issues_declared)
     if error_count < 3:
         return []
@@ -479,7 +619,7 @@ def detect_lang_mismatch(value: str, lang: str, all_langs: set[str]) -> list[str
     best_alt, best_errors = None, error_count
 
     for alt in other_langs:
-        if alt not in hs.supported_languages:
+        if alt not in hs.supported_languages():
             continue
         alt_issues = hs.check(words, alt)
         if len(alt_issues) < best_errors:
@@ -504,8 +644,8 @@ def audit_repo(repo_path: str, filter_langs: list[str] | None = None,
                custom_dict_file: str | None = None,
                lt_max_errors: int = 5, lt_min_length: int = LT_MIN_LENGTH_DEFAULT,
                workers: int = DEFAULT_WORKERS) -> list[dict]:
-    hs = get_hunspell()
 
+    # Step 1: Extract literals and detect languages
     print(f"[INFO] Extracting literals from {repo_path}...", file=sys.stderr)
     literals = extract_literals(repo_path, include_no_lang=False)
 
@@ -513,14 +653,77 @@ def audit_repo(repo_path: str, filter_langs: list[str] | None = None,
         print("[WARN] No literals with lang tags found.", file=sys.stderr)
         return []
 
+    all_langs = detect_languages(literals)
+    if not all_langs:
+        print("[INFO] No language tags found — defaulting to English (@en)",
+              file=sys.stderr)
+        all_langs = {"en"}
+
     if filter_langs:
         lang_set = set(l.lower() for l in filter_langs)
         literals = [l for l in literals if l["lang"] and l["lang"].lower() in lang_set]
+        all_langs = all_langs & lang_set
+        if not all_langs:
+            print(f"[WARN] No literals found for languages: {filter_langs}",
+                  file=sys.stderr)
+            return []
 
-    all_langs = set()
-    for lit in literals:
-        if lit["lang"]:
-            all_langs.add(lit["lang"].lower())
+    print(f"[INFO] Languages in project: {', '.join(sorted(all_langs))}",
+          file=sys.stderr)
+
+    # Step 2: Ensure dictionaries are available
+    dict_dir = get_dict_dir()
+    available_langs = ensure_dicts(all_langs, dict_dir)
+
+    # Also scan system dict dirs for pre-installed dicts
+    system_dict_dirs = [
+        "/usr/share/hunspell",
+        "/usr/share/myspell/dicts",
+        "/usr/local/share/hunspell",
+        "/opt/homebrew/share/hunspell",
+    ]
+    for sd in system_dict_dirs:
+        if os.path.isdir(sd):
+            for lang in all_langs - available_langs:
+                dict_name = BCP47_TO_DICT.get(lang)
+                if dict_name:
+                    aff = os.path.join(sd, dict_name + ".aff")
+                    dic = os.path.join(sd, dict_name + ".dic")
+                    if os.path.isfile(aff) and os.path.isfile(dic):
+                        # Symlink or copy into our dict_dir
+                        dst_aff = os.path.join(dict_dir, dict_name + ".aff")
+                        dst_dic = os.path.join(dict_dir, dict_name + ".dic")
+                        if not os.path.isfile(dst_aff):
+                            try:
+                                os.symlink(aff, dst_aff)
+                                os.symlink(dic, dst_dic)
+                                available_langs.add(lang)
+                            except OSError:
+                                pass
+
+    # Step 3: Initialize hunspell
+    hs = Hunspell(dict_dir)
+    if not hs.available:
+        print("[ERROR] libhunspell not found!", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("Install hunspell:", file=sys.stderr)
+        print("  bash scripts/build_hunspell.sh    # Build from source (no root)",
+              file=sys.stderr)
+        print("  sudo apt install libhunspell-dev   # Debian/Ubuntu", file=sys.stderr)
+        print("  brew install hunspell              # macOS", file=sys.stderr)
+        sys.exit(1)
+
+    supported = hs.supported_languages()
+    unsupported = all_langs - supported
+    if unsupported:
+        print(f"[INFO] No dictionaries available for: "
+              f"{', '.join(sorted(unsupported))}", file=sys.stderr)
+        if not use_grammar:
+            print(f"[INFO] Use --grammar to check these with LanguageTool.",
+                  file=sys.stderr)
+
+    # Reload after downloading dicts
+    hs = Hunspell(dict_dir)
 
     # Deduplicate by (value, lang)
     seen: dict[tuple, list] = {}
@@ -528,7 +731,7 @@ def audit_repo(repo_path: str, filter_langs: list[str] | None = None,
         key = (lit["value"], lit["lang"])
         seen.setdefault(key, []).append(lit)
 
-    # Load custom words into hunspell runtime dictionaries
+    # Load custom words
     custom = list(custom_words) if custom_words else []
     if custom_dict_file:
         try:
@@ -543,26 +746,19 @@ def audit_repo(repo_path: str, filter_langs: list[str] | None = None,
             print(f"[WARN] Cannot read {custom_dict_file}: {e}", file=sys.stderr)
 
     if custom:
-        for lang in all_langs:
-            if lang in hs.supported_languages:
-                for word in custom:
-                    hs.add_word(word, lang)
+        for lang in supported:
+            for word in custom:
+                hs.add_word(word, lang)
         print(f"[INFO] Added {len(custom)} custom words to runtime dictionaries",
               file=sys.stderr)
 
-    supported = all_langs & hs.supported_languages
-    unsupported = all_langs - supported
-
+    # Spell check
     unique_count = len(seen)
     print(f"[INFO] Checking {unique_count} unique literal+lang combinations "
           f"({len(literals)} total)...", file=sys.stderr)
-    if unsupported:
-        print(f"[INFO] No dictionaries for: {', '.join(sorted(unsupported))} "
-              f"— use --grammar for these", file=sys.stderr)
     if check_mismatch:
         print(f"[INFO] Lang-mismatch detection: ON", file=sys.stderr)
 
-    # Phase 1: spelling
     report = []
     checked = 0
 
@@ -589,16 +785,15 @@ def audit_repo(repo_path: str, filter_langs: list[str] | None = None,
         }
 
         if check_mismatch and issues:
-            warnings = detect_lang_mismatch(value, lang, all_langs)
+            warnings = detect_lang_mismatch(value, lang, all_langs, hs)
             if warnings:
                 entry["lang_warnings"] = warnings
 
         if issues or entry.get("lang_warnings"):
             report.append(entry)
 
-    # Phase 2: grammar (optional)
+    # Grammar check (optional)
     if use_grammar:
-        # Check unsupported languages with LT
         for (value, lang), occurrences in seen.items():
             if lang.lower() in supported:
                 continue
@@ -620,7 +815,6 @@ def audit_repo(repo_path: str, filter_langs: list[str] | None = None,
                     ],
                 })
 
-        # Grammar check on spelling-issue literals
         if report:
             print(f"[INFO] Running LanguageTool on {len(report)} literals...",
                   file=sys.stderr)
@@ -643,9 +837,6 @@ def audit_repo(repo_path: str, filter_langs: list[str] | None = None,
                     except Exception as e:
                         print(f"[WARN] LT error for {key}: {e}", file=sys.stderr)
                     done += 1
-                    if done % 50 == 0 or done == len(report):
-                        print(f"  ...LT checked {done}/{len(report)}",
-                              file=sys.stderr)
 
     report = [e for e in report if e["issues"] or e.get("lang_warnings")]
     print(f"[INFO] Done. {len(report)} literals with issues.", file=sys.stderr)
@@ -717,7 +908,8 @@ def format_report_markdown(report: list[dict]) -> str:
 def main():
     parser = argparse.ArgumentParser(
         description="Audit RDF literals for spelling/grammar errors. "
-                    "Uses hunspell (ctypes, must be installed) for spelling, "
+                    "Uses hunspell (ctypes) for spelling — auto-downloads "
+                    "dictionaries based on the project's language tags. "
                     "LanguageTool for grammar (--grammar)."
     )
     parser.add_argument("repo_path",

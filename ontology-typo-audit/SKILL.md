@@ -1,6 +1,6 @@
 ---
 name: ontology-typo-audit
-description: Provides a script and instructions to audit spelling and grammar of every string literal in its declared language. Uses Hunspell via ctypes (compiled from source or system). Optional LanguageTool for grammar. Detects lang-tag mismatches.
+description: Provides a script and instructions to audit spelling and grammar of every string literal in its declared language. Uses Hunspell via ctypes. Dictionaries auto-downloaded from LibreOffice based on the project's language tags. Optional LanguageTool for grammar.
 license: MIT
 compatibility: Requires python3, rdflib, hunspell (build script provided). Optional: language-tool-python.
 ---
@@ -13,8 +13,8 @@ literal in its declared language.
 
 **Single script:** `scripts/grammar_audit.py` — extract, audit, report.
 
-**Spell checker:** Hunspell — the same engine used by LibreOffice and Firefox.
-Called directly via ctypes — no Python binding needed.
+**Dictionaries auto-downloaded** from LibreOffice based on the project's
+language tags. No manual dictionary management needed.
 
 ## Setup
 
@@ -33,14 +33,15 @@ pip install rdflib
 **Option A: Build from source (recommended — works everywhere, no root)**
 
 ```bash
+# Auto-detect languages from your ontology repo:
+bash scripts/build_hunspell.sh --repo .
+
+# Or explicit languages:
+bash scripts/build_hunspell.sh --langs es,en,de
+
+# Default: English only
 bash scripts/build_hunspell.sh
 ```
-
-This script:
-- Clones hunspell from GitHub (v1.7.3)
-- Compiles `libhunspell` as a shared library
-- Downloads dictionaries from LibreOffice (68 languages available)
-- Installs everything to `~/.local/share/hunspell-built/`
 
 Build dependencies: `g++ make autoconf automake autopoint libtool`
 
@@ -57,28 +58,11 @@ brew install autoconf automake libtool gettext
 brew link gettext --force
 ```
 
-Customize languages:
-
-```bash
-# Default: en, es, fr, de, it, pt, nl, ru
-bash scripts/build_hunspell.sh
-
-# Specific languages only (faster download)
-bash scripts/build_hunspell.sh --langs es,en,de,fr
-
-# Custom install location
-bash scripts/build_hunspell.sh --prefix /opt/hunspell --langs es,en
-```
-
-Available language codes for `--langs`:
-en, es, fr, de, it, pt, nl, ru, ar, ca, gl, ro, sv, cs, da, el, fi, hu,
-ko, no, pl, sk, sl, tr, uk, he, id, vi
-
 **Option B: System package (if you have root)**
 
 ```bash
 # Debian/Ubuntu
-sudo apt install libhunspell-dev hunspell-es hunspell-de hunspell-fr
+sudo apt install libhunspell-dev hunspell-es hunspell-de
 
 # Fedora
 sudo dnf install hunspell-devel hunspell-es
@@ -103,21 +87,38 @@ pip install language-tool-python
 > ```
 > Skip this if the user asks to keep the environment.
 
+## How Dictionaries Work
+
+**Dictionaries are auto-downloaded based on the project's language tags.**
+
+When you run `grammar_audit.py` on a repo:
+
+1. Scan all RDF files → extract `@lang` tags (e.g. `@es`, `@en`, `@de`)
+2. Map lang tags to hunspell dictionaries (e.g. `es` → `es_ES.aff` + `es_ES.dic`)
+3. Check if dictionaries exist locally (in `~/.local/share/hunspell-built/` or system dirs)
+4. **Download missing dictionaries** from LibreOffice automatically
+5. Run spell check
+
+If no language tags are found in the project → defaults to English.
+
+This means: **different projects automatically get the right dictionaries.**
+A Spanish ontology gets `es_ES`, a German one gets `de_DE_frami`, etc.
+
 ## Workflow
 
-### 1. Explore: dump all literals
+### 1. Explore: dump all literals and their languages
 
 ```bash
 python scripts/grammar_audit.py . --dump --no-lang
 ```
 
-### 2. Spell check (fast — recommended first pass)
+### 2. Spell check (auto-downloads needed dictionaries)
 
 ```bash
 python scripts/grammar_audit.py . -o SPELL_REPORT.md
 ```
 
-### 3. With custom words
+### 3. With custom words (domain terms not in dictionaries)
 
 ```bash
 # Inline
@@ -127,8 +128,8 @@ python scripts/grammar_audit.py . --word pádel Straßenlaterne
 python scripts/grammar_audit.py . --dict my_words.txt
 ```
 
-Custom words are added to hunspell's runtime dictionary — they inherit
-affixes (plurals, conjugations) if a similar word exists in the dictionary.
+Custom words are added to hunspell's runtime dictionary. They inherit
+affixes (plurals, conjugations) if a similar word exists.
 
 ### 4. Spell + grammar check (slow)
 
@@ -142,7 +143,7 @@ python scripts/grammar_audit.py . --grammar -o FULL_REPORT.md
 python scripts/grammar_audit.py . --mismatch
 ```
 
-### 6. Filter by language
+### 6. Filter by language (only check these)
 
 ```bash
 python scripts/grammar_audit.py . --lang de fr
@@ -173,17 +174,16 @@ python scripts/grammar_audit.py . --format json
 ## How It Works
 
 The script calls `libhunspell` directly via Python's `ctypes` module — no
-subprocess, no Python C extension, no pip package for hunspell. This gives:
+subprocess, no Python C extension, no pip package for hunspell.
 
 - **Same speed as native hunspell** (~0.001ms per word)
-- **Full affix expansion** — "lámparas" recognized via .aff rules, not just "lámpara"
-- **Suggestions** — "automovil" → "automóvil", "lampara" → "lámpara"
-- **Runtime word addition** — `--word` terms get affixes if a similar word exists
+- **Full affix expansion** — "lámparas" recognized via .aff rules
+- **Suggestions** — "automovil" → "automóvil"
+- **Runtime word addition** — `--word` terms get affixes if similar word exists
 
 ## Supported Languages
 
-68 languages via LibreOffice dictionaries (run `build_hunspell.sh --langs`).
-Common ones:
+60+ via LibreOffice dictionaries. Common ones:
 
 | Code | Language | Code | Language |
 |------|----------|------|----------|
@@ -196,6 +196,8 @@ Common ones:
 | sv | Swedish | cs | Czech |
 | pl | Polish | uk | Ukrainian |
 | hu | Hungarian | tr | Turkish |
+
+Full list: see `BCP47_TO_DICT` in `grammar_audit.py`.
 
 ## Technical Term Whitelist
 
