@@ -1,21 +1,14 @@
 ---
 name: ontology-full-audit
-description: Coordinator skill that runs a complete ontology evaluation by orchestrating the other audit skills in a logical order — from syntax to logic. Produces a consolidated report of all findings.
+description: Complete ontology evaluation guide. Describes what to check, in what order, pass/fail criteria, and how to interpret findings. The agent performs the analysis using the other skills as tools.
 license: MIT
-compatibility: Requires all individual skill dependencies installed
 ---
 
 # Ontology Full Audit
 
-Orchestrates a complete evaluation of an ontology repository by running each
-audit skill in order — from the most fundamental checks (syntax) to the most
-advanced (logical consistency).
-
-**No new scripts.** This skill instructs the agent to run the existing tools
-in a planned sequence and produce a unified report.
-
-Each audit skill supports `--format report` which outputs a **standardized JSON
-schema** — same structure across all skills, easy to merge programmatically.
+A complete audit of an ontology repository. Each dimension must be checked in
+order, and findings reported with severity: ❌ error (blocks release),
+⚠️ warning (should fix), ℹ️ info (advisory).
 
 ## Prerequisites
 
@@ -26,156 +19,121 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install rdflib language-tool-python requests pyshacl owlready2 pyoxigraph
 ```
 
-## Audit Sequence
-
-Run in this order. Each step gates the next — if a step fails hard, fix it
-before continuing.
-
-### Phase 1 — Fundamentals (must pass)
-
-**1. Syntax validation.** If files don't parse, nothing else works.
+Rapper for syntax validation is a system tool:
 
 ```bash
-python ontology-syntax-validate/scripts/syntax_validate.py <repo> -o 01_syntax.md
+sudo apt install raptor2-utils
 ```
 
-> ❌ **Gate:** any parse error → fix immediately, re-run, then continue.
+---
 
-### Phase 2 — Text quality
+## Audit Dimensions
 
-**2. Grammar and spelling.** Every string literal in its declared language.
+### 1. Syntax — `ontology-syntax-validate`
 
-```bash
-python ontology-typo-audit/scripts/grammar_audit.py <repo> -o 02_typos.md
-```
+**Every RDF file must parse.**
 
-**3. Language coverage.** Are labels present in all project languages?
+Walk the repository. For every `.ttl`, `.owl`, `.rdf`, `.rdfs`, `.nt`,
+`.jsonld`, `.n3`, `.trig`, `.nq` file, attempt to parse it as RDF. Any file
+that fails to parse is a syntax error — report file path, line, and the
+parser's error message.
 
-```bash
-python ontology-lang-coverage/scripts/lang_coverage.py <repo> --lang <L1> <L2> ... -o 03_coverage.md
-```
+- ❌ Any parse error → block. Nothing else can be checked until all files parse.
 
-> Specify your project's target languages explicitly with `--lang`.
+## 2. Text Quality — `ontology-typo-audit`
 
-### Phase 3 — Structure
+**Every string literal must have correct grammar and spelling in its declared
+language.**
 
-**4. SKOS integrity.** If the repo contains SKOS concept schemes.
+Extract every string literal with a language tag (`rdfs:label`, `rdfs:comment`,
+`skos:prefLabel`, `skos:altLabel`, `skos:definition`, and any other annotation
+property). For each literal, check grammar and spelling in the language
+indicated by its tag. Report the text, the error, and a suggested correction.
 
-```bash
-python ontology-skos-audit/scripts/skos_audit.py <repo> -o 04_skos.md
-```
+The set of languages checked is whatever is present in the data — no
+assumptions about which languages exist. If a literal tagged `@X` produces
+many errors in language X but few in language Y, flag a possible lang-tag
+mismatch (text may be tagged with the wrong language).
 
-**5. OWL pitfalls.** Design-level issues via OOPS! API (needs internet).
+- ⚠️ Grammar/spelling errors → review suggestions; short labels and proper names
+  may be false positives.
 
-```bash
-python ontology-oops-scan/scripts/oops_scan.py <repo> -o 05_oops.md
-```
+## 3. Translation Completeness — `ontology-lang-coverage`
 
-> ⏱️ Can take 30–120s. Skip with `--dry-run` to test serialization first.
+**Every labelled resource must have labels in every expected project
+language.**
 
-### Phase 4 — Data and logic
+The expected languages must be declared explicitly (not guessed). For each
+resource carrying labels, check that it has at least one label in every
+expected language. Also flag labels in languages outside the expected set.
 
-**6. SHACL validation.** Instance data against shapes (if instances exist).
+- ⚠️ Missing translation → add the label or document the gap.
+- ℹ️ Extra language → may be accidental; verify.
 
-```bash
-python ontology-shacl-validate/scripts/shacl_validate.py <repo> -o 06_shacl.md
-```
+## 4. SKOS Integrity — `ontology-skos-audit`
 
-**7. Reasoner consistency.** Unsatisfiable classes, global inconsistency.
+**If SKOS concept schemes are present, they must be structurally sound.**
 
-```bash
-python ontology-reasoner-check/scripts/reasoner_check.py <repo> -o 07_reasoner.md
-```
+Check that: every `skos:Concept` has a `skos:inScheme` pointing to a defined
+`skos:ConceptScheme`; every scheme has at least one concept; `skos:prefLabel`
+is present and unique per scheme+language; `skos:notation` is consistent with
+URI naming; `skos:broader`/`skos:narrower` links point to existing concepts.
 
-> ❌ **Gate:** unsatisfiable classes = contradictory axioms. Fix before release.
+- ❌ Missing `prefLabel`, undefined scheme reference, duplicate `prefLabel`
+  within a scheme → fix.
+- ⚠️ Orphan concept (no `inScheme`), empty scheme, notation mismatch → review.
 
-### Phase 5 — Deployment (optional)
+## 5. OWL Design Pitfalls — `ontology-oops-scan`
 
-**8. SPARQL endpoint.** Serve the ontology for interactive exploration.
+**The ontology must be free of common modelling mistakes.**
 
-```bash
-python ontology-sparql-endpoint/scripts/deploy_endpoint.py <repo>
-```
+Check for: missing human-readable annotations on classes and properties;
+classes that should be disjoint but aren't; properties missing domain or range;
+properties with multiple domains/ranges (interpreted as intersection in OWL,
+usually a bug); properties missing their inverse declaration; naming convention
+inconsistencies across the ontology.
 
-## Consolidated Report
+- ❌ Multiple domains/ranges on a property → fix immediately (OWL intersection
+  semantics are almost never intended).
+- ⚠️ Missing disjointness, missing domain/range, missing inverse, unconnected
+  elements → fix where applicable; some may be intentional.
+- ℹ️ Missing annotations, naming inconsistencies → improve progressively.
 
-After running all phases, aggregate the Markdown reports:
+## 6. Data Validation — `ontology-shacl-validate`
 
-```bash
-cat 01_syntax.md 02_typos.md 03_coverage.md 04_skos.md 05_oops.md 06_shacl.md 07_reasoner.md > FULL_AUDIT.md
-```
+**If instance data exists with SHACL shapes, instances must conform.**
 
-Or generate a summary table:
+If shapes are defined (`sh:NodeShape`, `sh:PropertyShape`), validate every
+instance against its target shape. If no shapes exist but the schema implies
+constraints (cardinality, datatype), check instances against those constraints.
 
-```bash
-echo "# Full Audit Summary" > SUMMARY.md
-echo "" >> SUMMARY.md
-echo "| Phase | Skill | Status | Issues |" >> SUMMARY.md
-echo "|-------|-------|--------|--------|" >> SUMMARY.md
+- ❌ Constraint violation → fix the data or adjust the shape.
+- ℹ️ If no instances or no shapes exist, this dimension is trivially satisfied.
 
-for f in 01_syntax.md 02_typos.md 03_coverage.md 04_skos.md 05_oops.md 06_shacl.md 07_reasoner.md; do
-  if grep -q "No .* found\|conforms\|consistent.*✅\|passed successfully\|All resources have" "$f" 2>/dev/null; then
-    echo "| $(head -1 "$f" | sed 's/# //') | ✅ | 0 |" >> SUMMARY.md
-  else
-    echo "| $(head -1 "$f" | sed 's/# //') | ❌ | see report |" >> SUMMARY.md
-  fi
-done
-```
+## 7. Logical Consistency — `ontology-reasoner-check`
 
-## Decision Matrix
+**The ontology must not contain logical contradictions.**
 
-| Finding | Action |
-|---------|--------|
-| Syntax errors (01) | **Block release.** Fix immediately. |
-| Grammar errors (02) | Fix before release. Review suggestions — some may be false positives. |
-| Missing translations (03) | Add labels. If intentional, note in `--lang` list and re-run. |
-| SKOS errors (04) | Fix `inScheme`, `prefLabel`, broken links. Duplicates may be intentional. |
-| Critical OOPS pitfalls (05) | Fix P21 (multiple domains), P04 (unconnected). Minor pitfalls are advisory. |
-| SHACL violations (06) | Fix data or relax shapes. If no instances, skip this phase. |
-| Unsatisfiable classes (07) | **Block release.** Contradictory axioms break reasoning. |
+Using an OWL 2 DL reasoner, check for: unsatisfiable classes (can never have
+instances under current axioms); non-trivial inferred equivalences (two
+different classes that the reasoner proves are the same); global inconsistency
+(every class is unsatisfiable — the whole ontology is contradictory).
 
-## One-liner (when all deps are ready)
+- ❌ Unsatisfiable classes or global inconsistency → block. Find and fix the
+  contradictory axioms (usually disjointness combined with subclassing,
+  conflicting domain/range, or inconsistent cardinalities).
+- ℹ️ Inferred equivalences → review; may be intentional synonyms or modelling
+  redundancy.
 
-```bash
-python ontology-syntax-validate/scripts/syntax_validate.py . -o 01_syntax.md && \
-python ontology-typo-audit/scripts/grammar_audit.py . -o 02_typos.md && \
-python ontology-lang-coverage/scripts/lang_coverage.py . -o 03_coverage.md && \
-python ontology-skos-audit/scripts/skos_audit.py . -o 04_skos.md && \
-python ontology-oops-scan/scripts/oops_scan.py . -o 05_oops.md && \
-python ontology-shacl-validate/scripts/shacl_validate.py . -o 06_shacl.md && \
-python ontology-reasoner-check/scripts/reasoner_check.py . -o 07_reasoner.md && \
-echo "Full audit complete. See FULL_AUDIT.md"
-```
+## Reporting
 
-## Programmatic Consumption
+After completing all dimensions, produce a single report with:
 
-Every skill supports `--format report` which outputs a common JSON schema:
+1. **Summary table** — one row per dimension, with pass/fail status and issue
+   counts split by severity.
 
-```json
-{
-  "skill": "typo-audit",
-  "summary": {"errors": 0, "warnings": 5, "info": 0},
-  "issues": [
-    {"file": "onto.ttl", "element": ":StreetLamp",
-     "message": "Possible spelling mistake", "severity": "warning",
-     "check": "MORFOLOGIK_RULE_ES", "suggestion": "Lámpara"}
-  ]
-}
-```
+2. **Detailed findings** — per dimension, list each issue with file, element,
+   severity, description, and suggestion.
 
-This makes it easy to merge reports programmatically:
-
-```python
-import json, glob
-all_issues = []
-for f in glob.glob("*_report.json"):
-    report = json.load(open(f))
-    all_issues.extend(report["issues"])
-
-# Sort by severity
-all_issues.sort(key=lambda i: {"error": 0, "warning": 1, "info": 2}[i["severity"]])
-
-print(f"Total issues: {len(all_issues)}")
-for issue in all_issues:
-    print(f"[{issue['severity']}] {issue['skill']}: {issue['message']}")
-```
+3. **Recommendations** — prioritised list of actions: errors first, then
+   warnings, then info items.

@@ -29,12 +29,18 @@ rapper is not installed.
 
 ## Setup
 
+Rapper is a system tool — install once:
+
 ```bash
-# Recommended: install rapper (fast, battle-tested, all formats)
 sudo apt install raptor2-utils    # Debian/Ubuntu
 brew install raptor               # macOS
+```
 
-# Fallback (slower, Turtle/RDF/XML/NT/JSON-LD only)
+For the rdflib fallback (if rapper is unavailable), use a venv:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install rdflib
 ```
 
