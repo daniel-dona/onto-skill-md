@@ -39,7 +39,7 @@ def select_main_file(repo_path: str) -> str | None:
             g = load_graph(repo_path)[0]
             # Quick check — just pick first
             return f
-        except:
+        except Exception:
             continue
     return candidates[0] if candidates else None
 

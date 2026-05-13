@@ -38,8 +38,10 @@ def generate_minimal_shapes(g: Graph) -> Graph:
     for cls in g.subjects(RDF.type, OWL.Class):
         cls_short = compact_uri(cls, g) if hasattr(g, 'namespace_manager') else str(cls)
 
-        # Skip blank nodes and OWL built-ins
-        if isinstance(cls, str) and cls.startswith("http://www.w3.org/"):
+        # Skip blank nodes, OWL built-ins, and non-URI resources
+        if not isinstance(cls, str):
+            continue
+        if cls.startswith("http://www.w3.org/"):
             continue
         name = cls_short.split(":")[-1] if ":" in cls_short else cls_short.replace("/", "_")
 

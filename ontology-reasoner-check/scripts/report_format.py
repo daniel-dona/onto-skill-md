@@ -1,6 +1,9 @@
 """
 report_format.py — Shared standardized report format for all ontology audit skills.
 
+INTENTIONALLY DUPLICATED across skill directories so each skill remains
+self-contained (no cross-skill imports at runtime). Keep copies in sync.
+
 Provides a common Issue dataclass and serialization so that every skill can
 emit findings in a consistent structure consumable by ontology-full-audit.
 

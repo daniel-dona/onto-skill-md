@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-grammar_audit.py — Audit string literals for grammar/spelling errors in their language.
+grammar_audit.py — Audit string literals for grammar/spelling errors.
 
-Reads the JSON from rdf_extract.py (or extracts directly), runs LanguageTool
-on each literal in its declared language, and reports issues.
+Extracts all string literals with language tags from an RDF repository and runs
+LanguageTool on each one in its declared language. Supports 30+ languages.
 
 Usage:
-    python grammar_audit.py <repo-path> [-o report.json] [--max-errors N] [--lang es,en,...]
+    python grammar_audit.py <repo-path> [-o report.md] [--lang es en]
 
 Requires:
     pip install rdflib language-tool-python
@@ -15,12 +15,55 @@ import argparse
 import json
 import os
 import sys
-import time
 from pathlib import Path
 
-# Import shared utilities and literal extraction
+from rdflib import Graph, Literal
+
 from rdf_utils import find_rdf_files, compact_uri
-from rdf_extract import extract_literals
+
+
+# ---------------------------------------------------------------------------
+# Literal extraction
+# ---------------------------------------------------------------------------
+
+def extract_literals(repo_path: str, include_no_lang: bool = False) -> list[dict]:
+    """Parse all RDF files and return string literals with optional lang tags."""
+    results = []
+    rdf_files = find_rdf_files(repo_path)
+    if not rdf_files:
+        print(f"[WARN] No RDF files found in {repo_path}", file=sys.stderr)
+        return results
+    for fpath in rdf_files:
+        g = Graph()
+        try:
+            g.parse(fpath, format=None)
+        except Exception as e:
+            print(f"[WARN] Could not parse {fpath}: {e}", file=sys.stderr)
+            continue
+        rel_path = os.path.relpath(fpath, repo_path)
+        for s, p, o in g.triples((None, None, None)):
+            if not isinstance(o, Literal):
+                continue
+            if o.datatype and str(o.datatype) not in (
+                "http://www.w3.org/2001/XMLSchema#string",
+                "http://www.w3.org/1999/02/22-rdf-syntax-ns#langString",
+            ) and o.datatype is not None:
+                continue
+            if not o.value or not str(o.value).strip():
+                continue
+            lang = str(o.language) if o.language else None
+            if not include_no_lang and lang is None:
+                continue
+            results.append({
+                "file": rel_path,
+                "subject": str(s),
+                "subject_short": compact_uri(s, g),
+                "predicate": str(p),
+                "predicate_short": compact_uri(p, g),
+                "value": str(o.value),
+                "lang": lang,
+            })
+    return results
 
 # Map BCP47 lang tags to LanguageTool language codes
 LANG_MAP = {

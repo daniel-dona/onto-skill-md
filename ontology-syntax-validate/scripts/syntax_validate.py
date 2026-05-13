@@ -32,7 +32,7 @@ RAPPER_FORMATS = {
     ".nq": "nquads",
     ".trig": "trig",
     ".n3": "turtle",      # rapper handles N3 as Turtle
-    ".jsonld": "jsonld",
+    ".jsonld": "guess",   # rapper auto-detects; rdflib handles better
     ".html": "rdfa",
     ".htm": "rdfa",
     ".xhtml": "rdfa",
