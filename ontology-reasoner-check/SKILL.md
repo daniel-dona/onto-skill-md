@@ -1,0 +1,64 @@
+---
+name: ontology-reasoner-check
+description: Checks OWL ontology logical consistency using the HermiT reasoner (via owlready2). Reports unsatisfiable classes, inferred equivalences, and global inconsistency. No Java required — HermiT is bundled as a Python wheel.
+license: MIT
+compatibility: Requires python3, rdflib, owlready2
+---
+
+# Ontology Reasoner Consistency Check
+
+Runs the **HermiT** OWL reasoner on the merged ontology to detect logical
+contradictions. Reports unsatisfiable classes, non-trivial equivalences, and
+global ontology inconsistency.
+
+**Single script:** `scripts/reasoner_check.py`
+
+## What It Detects
+
+| Issue | Example |
+|-------|---------|
+| Unsatisfiable class | `:SquareCircle` defined as `owl:intersectionOf (:Square :Circle)` and `:Square owl:disjointWith :Circle` |
+| Global inconsistency | `owl:Thing ≡ owl:Nothing` — the whole ontology is contradictory |
+| Non-trivial equivalences | `:Person ≡ :Human` inferred because both have identical necessary+sufficient conditions |
+
+## Setup
+
+```bash
+cd <your-ontology-repo>
+python3 -m venv .venv
+source .venv/bin/activate
+
+pip install rdflib owlready2
+```
+
+> **Note:** `owlready2` bundles HermiT as a precompiled wheel. No Java required.
+> The first time it runs, it may compile the native module, which takes a few seconds.
+
+## Usage
+
+```bash
+# Reason over all merged RDF files
+python scripts/reasoner_check.py . -o REASONER_REPORT.md
+
+# Reason over a specific file
+python scripts/reasoner_check.py . --only-file ontology/main.owl
+
+# JSON output
+python scripts/reasoner_check.py . --format json
+```
+
+## Important Rules
+
+1. **Unsatisfiable classes are always bugs.** A class that can never have instances
+   indicates contradictory axioms. Check domain/range restrictions, disjointness, and
+   cardinality constraints.
+
+2. **Global inconsistency is critical.** If HermiT reports `owl:Nothing ≡ owl:Thing`,
+   the entire ontology is logically broken. Fix unsatisfiable classes first — they're
+   usually the root cause.
+
+3. **Non-trivial equivalences may be intentional.** If `:Person ≡ :Human`, you may
+   want to merge them or use `owl:equivalentClass`. The script flags them for review.
+
+4. **Reasoning can be slow on large ontologies.** HermiT is optimized for OWL 2 DL.
+   For very large ontologies (> 5000 classes), it may take several minutes.

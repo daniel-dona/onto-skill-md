@@ -1,0 +1,37 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix : <http://example.com/langcov#> .
+
+# =============================================================================
+# Example for ontology-lang-coverage skill
+# Issues demonstrated:
+#   1. :StreetLamp — has @en label but missing @es (incomplete coverage)
+#   2. :ParkingMeter — has @es label but missing @en
+#   3. :BusStop — has both @en and @es (complete — no issue)
+#   4. :BicycleRack — has @fr label (extra language not in target en/es)
+# =============================================================================
+
+: a owl:Ontology ;
+    rdfs:label "Lang Coverage Test"@en ;
+    rdfs:label "Prueba de Cobertura"@es .
+
+# Missing @es
+:StreetLamp a owl:Class ;
+    rdfs:label "Street Lamp"@en ;
+    rdfs:comment "A lamp on the street"@en .
+
+# Missing @en
+:ParkingMeter a owl:Class ;
+    rdfs:label "Parquímetro"@es ;
+    rdfs:comment "Máquina de pago de estacionamiento"@es .
+
+# Complete (both langs)
+:BusStop a owl:Class ;
+    rdfs:label "Bus Stop"@en ;
+    rdfs:label "Parada de Autobús"@es .
+
+# Extra language (has @fr when project is en/es only)
+:BicycleRack a owl:Class ;
+    rdfs:label "Bicycle Rack"@en ;
+    rdfs:label "Porte-vélos"@fr .

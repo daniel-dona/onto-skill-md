@@ -1,0 +1,39 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix : <http://example.com/oops#> .
+
+# =============================================================================
+# Example for ontology-oops-scan skill
+# Issues OOPS! should detect:
+#   P08 — Missing annotations (:UncommentedNode has no rdfs:label/comment)
+#   P10 — Missing disjointness (:Cat and :Dog are not disjoint)
+#   P11 — Missing domain/range (:unknownProp has neither)
+#   P13 — Inverse relationships not declared (no owl:inverseOf)
+# =============================================================================
+
+: a owl:Ontology ;
+    rdfs:label "OOPS Test Ontology"@en .
+
+# --- P08: Missing annotations ---
+:UncommentedNode a owl:Class .
+
+# --- P10: Missing disjointness (Cat and Dog should be disjoint) ---
+:Cat a owl:Class ;
+    rdfs:label "Cat"@en .
+:Dog a owl:Class ;
+    rdfs:label "Dog"@en .
+
+# --- P11: Missing domain/range ---
+:unknownProp a owl:ObjectProperty ;
+    rdfs:label "unknownProp"@en .
+
+# --- P13: No inverse declared ---
+:parentOf a owl:ObjectProperty ;
+    rdfs:label "parent of"@en ;
+    rdfs:domain :Person ;
+    rdfs:range :Person .
+
+:Person a owl:Class ;
+    rdfs:label "Person"@en .

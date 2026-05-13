@@ -1,0 +1,52 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix : <http://example.com/shacl#> .
+
+# =============================================================================
+# Example for ontology-shacl-validate skill
+# Issues demonstrated:
+#   1. :bad_person — violates sh:minCount on :name (has 0 names, needs ≥1)
+#   2. :bad_person — violates sh:datatype on :age (has xsd:string "twenty")
+#   3. :invalid_city — violates sh:minLength on :postalCode
+#   4. :good_person — passes all shapes (clean instance)
+# =============================================================================
+
+# SHACL shapes
+:PersonShape a sh:NodeShape ;
+    sh:targetClass :Person ;
+    sh:property [
+        sh:path :name ;
+        sh:minCount 1 ;
+        sh:message "Every Person must have at least one name" ;
+    ] ;
+    sh:property [
+        sh:path :age ;
+        sh:datatype xsd:integer ;
+        sh:maxCount 1 ;
+        sh:message "age must be an integer" ;
+    ] .
+
+:CityShape a sh:NodeShape ;
+    sh:targetClass :City ;
+    sh:property [
+        sh:path :postalCode ;
+        sh:minLength 5 ;
+        sh:maxLength 5 ;
+        sh:message "postalCode must be exactly 5 characters" ;
+    ] .
+
+# --- Good instance (no violations) ---
+:good_person a :Person ;
+    :name "Alice" ;
+    :age 30 .
+
+# --- Violation: missing :name ---
+:bad_person a :Person ;
+    :age "twenty" .          # WRONG: not xsd:integer, AND missing :name
+
+# --- Violation: postalCode too short ---
+:invalid_city a :City ;
+    :postalCode "AB" .

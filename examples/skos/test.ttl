@@ -1,0 +1,52 @@
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix : <http://example.com/skos#> .
+
+# =============================================================================
+# Example for ontology-skos-audit skill
+# Issues demonstrated:
+#   1. :LoneWolf — Concept without skos:inScheme (orphan)
+#   2. :DuplicateA and :DuplicateB — share the same prefLabel "Park"@en
+#   3. :EmptyScheme — ConceptScheme with no concepts
+#   4. :BadNotation — notation doesn't match URI fragment
+#   5. :NoLabel — Concept with no skos:prefLabel at all
+# =============================================================================
+
+# --- Valid scheme and concepts ---
+:Places a skos:ConceptScheme ;
+    rdfs:label "Places"@en .
+
+:Park a skos:Concept ;
+    skos:prefLabel "Park"@en ;
+    skos:inScheme :Places .
+
+:Street a skos:Concept ;
+    skos:prefLabel "Street"@en ;
+    skos:inScheme :Places .
+
+# --- Orphan concept (no inScheme) ---
+:LoneWolf a skos:Concept ;
+    skos:prefLabel "Lone Wolf"@en .
+
+# --- Duplicate prefLabel within the same scheme ---
+:DuplicateA a skos:Concept ;
+    skos:prefLabel "Park"@en ;        # ← DUPLICATE of :Park's label
+    skos:inScheme :Places .
+
+:DuplicateB a skos:Concept ;
+    skos:prefLabel "Park"@en ;        # ← DUPLICATE
+    skos:inScheme :Places .
+
+# --- Empty ConceptScheme ---
+:EmptyScheme a skos:ConceptScheme ;
+    rdfs:label "Empty Scheme"@en .
+
+# --- Notation doesn't match URI ---
+:StreetLamp a skos:Concept ;
+    skos:prefLabel "Street Lamp"@en ;
+    skos:notation "lamp" ;           # ← should be "StreetLamp" or similar
+    skos:inScheme :Places .
+
+# --- No prefLabel at all ---
+:NoLabel a skos:Concept ;
+    skos:inScheme :Places .

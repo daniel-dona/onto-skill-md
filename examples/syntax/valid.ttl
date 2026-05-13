@@ -1,0 +1,16 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix : <http://example.com/syntax#> .
+
+# =============================================================================
+# Syntax error example for ontology-syntax-validate
+#   valid.ttl     — correct Turtle, should parse OK
+#   broken.ttl    — deliberate syntax errors
+# =============================================================================
+
+# This file is correct — should pass validation
+:ValidClass a owl:Class ;
+    rdfs:label "Valid"@en .
+
+:ValidProperty a owl:ObjectProperty ;
+    rdfs:label "valid"@en .
