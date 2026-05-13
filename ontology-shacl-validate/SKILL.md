@@ -44,6 +44,20 @@ python scripts/shacl_validate.py . --shapes shapes.ttl -o report.md
 python scripts/shacl_validate.py . --format json
 ```
 
+## Standardized Report
+
+All skills support `--format report` which outputs a common JSON schema:
+```json
+{
+  "skill": "skill-name",
+  "summary": {"errors": N, "warnings": N, "info": N},
+  "issues": [{"file": ".ttl", "element": ":Class", "message": "...",
+              "severity": "error|warning|info", "check": "RULE",
+              "suggestion": "fix"}]
+}
+```
+This format is consumed by `ontology-full-audit` to produce unified reports.
+
 ## Important Rules
 
 1. **Auto-generated shapes are minimal.** They only cover cardinality constraints

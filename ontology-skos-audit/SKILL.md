@@ -1,6 +1,10 @@
 ---
 name: ontology-skos-audit
-description: Audits SKOS concept schemes for structural integrity: broken inScheme references, missing prefLabels, duplicate labels, notation mismatches, orphan hierarchies, and broken broader/narrower links. Uses rdflib to parse any RDF serialization. General-purpose — not tied to any specific ontology.
+description: >-
+  Audits SKOS concept schemes for structural integrity — broken inScheme references,
+  missing prefLabels, duplicate labels, notation mismatches, orphan hierarchies,
+  and broken broader/narrower links. Uses rdflib to parse any RDF serialization.
+  General-purpose, not tied to any specific ontology.
 license: MIT
 compatibility: Requires python3, rdflib
 ---
@@ -89,6 +93,20 @@ Example JSON entry:
   SKOS_REPORT.md
   (or .json)
 ```
+
+## Standardized Report
+
+All skills support `--format report` which outputs a common JSON schema:
+```json
+{
+  "skill": "skill-name",
+  "summary": {"errors": N, "warnings": N, "info": N},
+  "issues": [{"file": ".ttl", "element": ":Class", "message": "...",
+              "severity": "error|warning|info", "check": "RULE",
+              "suggestion": "fix"}]
+}
+```
+This format is consumed by `ontology-full-audit` to produce unified reports.
 
 ## Important Rules
 

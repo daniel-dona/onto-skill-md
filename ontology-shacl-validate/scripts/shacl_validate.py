@@ -194,7 +194,7 @@ def main():
     parser.add_argument("repo_path", help="Path to the ontology repository")
     parser.add_argument("-o", "--output", help="Output file (.json or .md)")
     parser.add_argument("--shapes", help="Path to external SHACL shapes file (.ttl)")
-    parser.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    parser.add_argument("--format", choices=["json", "markdown", "report"], default="markdown")
     args = parser.parse_args()
 
     results = run_validation(args.repo_path, shapes_path=args.shapes)
@@ -207,6 +207,15 @@ def main():
 
     if fmt == "json":
         output = json.dumps(results, indent=2, ensure_ascii=False)
+    elif fmt == "report":
+        from report_format import AuditReport
+        ar = AuditReport(skill="shacl-validate")
+        for v in results.get("violations", []):
+            ar.add(file="—", element=v.get("focus_node_short", v.get("focus_node", "")),
+                   message=v.get("message", "")[:200], severity="error",
+                   check=f"SHACL:{v.get('path_short', v.get('path', ''))}",
+                   suggestion="", predicate=v.get("path_short", ""))
+        output = ar.to_json()
     else:
         output = format_report_markdown(results)
 

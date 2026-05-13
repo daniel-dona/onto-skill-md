@@ -284,6 +284,15 @@ def main():
 
     if fmt == "json":
         output_text = json.dumps(issues, indent=2, ensure_ascii=False)
+    elif fmt == "report":
+        from report_format import AuditReport
+        ar = AuditReport(skill="skos-audit")
+        for iss in issues:
+            ar.add(file="—", element=iss.get("subject_short", iss.get("scheme_short", "")),
+                   message=iss["message"], severity=iss.get("severity", "info"),
+                   check=iss.get("check", ""),
+                   suggestion=iss.get("target_short", ""))
+        output_text = ar.to_json()
     else:
         output_text = format_report_markdown(issues)
 

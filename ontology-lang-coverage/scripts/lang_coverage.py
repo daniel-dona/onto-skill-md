@@ -139,7 +139,7 @@ def main():
     parser.add_argument("-o", "--output", help="Output file (.json or .md)")
     parser.add_argument("--lang", nargs="+", default=None,
                         help="Expected languages (e.g. --lang es en fr). If omitted, auto-detect.")
-    parser.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    parser.add_argument("--format", choices=["json", "markdown", "report"], default="markdown")
     args = parser.parse_args()
 
     report = build_coverage_report(args.repo_path, expected_langs=args.lang)
@@ -152,6 +152,20 @@ def main():
 
     if fmt == "json":
         output = json.dumps(report, indent=2, ensure_ascii=False)
+    elif fmt == "report":
+        from report_format import AuditReport
+        ar = AuditReport(skill="lang-coverage")
+        for m in report.get("missing", []):
+            for lang in m.get("missing", []):
+                ar.add(file="—", element=m["resource_short"],
+                       message=f"Missing @{lang} label", severity="warning",
+                       check="missing-translation",
+                       suggestion=f"Add @{lang} label for {m['resource_short']}")
+            for extra in m.get("extra_languages", []):
+                ar.add(file="—", element=m["resource_short"],
+                       message=f"Extra language @{extra} outside target set",
+                       severity="info", check="extra-language")
+        output = ar.to_json()
     else:
         output = format_report_markdown(report)
 

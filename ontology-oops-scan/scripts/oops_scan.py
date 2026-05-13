@@ -321,7 +321,7 @@ def main():
     )
     parser.add_argument("repo_path", help="Path to the ontology repository")
     parser.add_argument("-o", "--output", help="Output file (.md or .json)")
-    parser.add_argument("--format", choices=["markdown", "json"], default="markdown",
+    parser.add_argument("--format", choices=["markdown", "json", "report"], default="markdown",
                         help="Output format (default: markdown)")
     parser.add_argument("--pitfalls", default="",
                         help="Comma-separated pitfall codes to scan (e.g. P04,P08). Default: all")
@@ -384,6 +384,17 @@ def main():
 
     if fmt == "json":
         output_text = json.dumps(report, indent=2, ensure_ascii=False)
+    elif fmt == "report":
+        from report_format import AuditReport
+        ar = AuditReport(skill="oops-scan")
+        for pf in report.get("pitfalls", []):
+            sev = "error" if pf.get("importance") == "Critical" else \
+                  "warning" if pf.get("importance") == "Important" else "info"
+            for ae in pf.get("affected_elements", []):
+                ar.add(file="—", element=ae, message=f"{pf['code']}: {pf['name']}",
+                       severity=sev, check=pf['code'],
+                       suggestion=pf.get("description", "")[:200])
+        output_text = ar.to_json()
     else:
         output_text = format_report_markdown(report)
 
