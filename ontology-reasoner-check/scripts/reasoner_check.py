@@ -108,14 +108,26 @@ def merge_and_check(repo_path: str, main_file: str | None = None) -> dict:
     for cls in onto.classes():
         try:
             if owlready2.NotOWLClass not in cls.is_a:
-                if hasattr(cls, 'equivalent_to') and owlready2.owl.Nothing in cls.equivalent_to:
-                    name = cls.name or str(cls.iri)
-                    unsatisfiable.append({
-                        "name": name,
-                        "iri": str(cls.iri) if cls.iri else "",
-                    })
+                # After reasoning, unsatisfiable classes become equivalent to owl:Nothing
+                if hasattr(cls, 'equivalent_to'):
+                    eq_set = set(cls.equivalent_to)
+                    if owlready2.owl.Nothing in eq_set:
+                        name = cls.name or str(cls.iri)
+                        unsatisfiable.append({"name": name, "iri": str(cls.iri) if cls.iri else ""})
         except Exception:
             pass
+
+    # Also check owlready2's inconsistent_classes()
+    try:
+        for cls in owlready2.default_world.inconsistent_classes():
+            # Skip owl:Nothing itself (it's trivially unsatisfiable)
+            if cls == owlready2.owl.Nothing:
+                continue
+            name = cls.name or str(cls.iri)
+            if not any(u["name"] == name for u in unsatisfiable):
+                unsatisfiable.append({"name": name, "iri": str(cls.iri) if cls.iri else ""})
+    except Exception:
+        pass
 
     # Inconsistent ontology (global)
     inconsistent = False
