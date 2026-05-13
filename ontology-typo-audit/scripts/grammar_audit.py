@@ -1,20 +1,28 @@
 #!/usr/bin/env python3
 """
-grammar_audit.py — Audit string literals for grammar/spelling errors.
+grammar_audit.py — Audit string literals for spelling/grammar errors.
 
-Extracts all string literals with language tags from an RDF repository and runs
-LanguageTool on each one in its declared language. Supports 30+ languages.
+Primary checker: Hunspell (C library, instant). Fallback: LanguageTool
+(Java, slow). Hunspell catches misspellings and missing accents — the most
+common ontology label issues. LanguageTool adds grammar checking but is
+~100x slower.
 
 Usage:
     python grammar_audit.py <repo-path> [-o report.md] [--lang es en]
 
 Requires:
-    pip install rdflib language-tool-python
+    hunspell (apt install hunspell + dictionaries) — recommended, fast
+    rdflib (pip install rdflib)
+    language-tool-python (pip install language-tool-python) — optional, slow
 """
 import argparse
 import json
 import os
+import re
+import subprocess
 import sys
+import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from rdflib import Graph, Literal
@@ -65,106 +73,240 @@ def extract_literals(repo_path: str, include_no_lang: bool = False) -> list[dict
             })
     return results
 
-# Map BCP47 lang tags to LanguageTool language codes
-LANG_MAP = {
-    "en": "en-US",
-    "en-us": "en-US",
-    "en-gb": "en-GB",
-    "es": "es",
-    "es-es": "es",
-    "es-419": "es",
-    "fr": "fr",
-    "fr-fr": "fr",
-    "de": "de-DE",
-    "de-de": "de-DE",
-    "pt": "pt-PT",
-    "pt-pt": "pt-PT",
-    "pt-br": "pt-BR",
-    "it": "it",
-    "nl": "nl",
-    "pl": "pl",
-    "ru": "ru",
-    "uk": "uk",
-    "ja": "ja",
-    "zh": "zh-CN",
-    "zh-cn": "zh-CN",
-    "ar": "ar",
-    "ca": "ca",
-    "cs": "cs",
-    "da": "da",
-    "el": "el",
-    "fi": "fi",
-    "gl": "gl",
-    "he": "he",
-    "hi": "hi",
-    "hu": "hu",
-    "ko": "ko",
-    "no": "no",
-    "nb": "no",
-    "ro": "ro",
-    "sk": "sk",
-    "sl": "sl",
-    "sv": "sv",
-    "tl": "tl",
-    "tr": "tr",
-    "fa": "fa",
+
+# ---------------------------------------------------------------------------
+# BCP47 → hunspell dictionary mapping
+# ---------------------------------------------------------------------------
+
+# Two-letter BCP47 tag → hunspell dict name (as installed by e.g. hunspell-es)
+HUNSPELL_DICT_MAP = {
+    "en": "en_US",
+    "en-us": "en_US",
+    "en-gb": "en_GB",
+    "es": "es_ES",
+    "es-es": "es_ES",
+    "es-419": "es_ANY",
+    "fr": "fr_FR",
+    "fr-fr": "fr_FR",
+    "de": "de_DE",
+    "de-de": "de_DE",
+    "de-at": "de_AT",
+    "de-ch": "de_CH",
+    "pt": "pt_PT",
+    "pt-pt": "pt_PT",
+    "pt-br": "pt_BR",
+    "it": "it_IT",
+    "nl": "nl_NL",
+    "pl": "pl_PL",
+    "ru": "ru_RU",
+    "uk": "uk_UA",
+    "ca": "ca_ES",
+    "gl": "gl_ES",
+    "ro": "ro_RO",
+    "sv": "sv_SE",
+    "cs": "cs_CZ",
+    "da": "da_DK",
+    "el": "el_GR",
+    "fi": "fi_FI",
+    "hu": "hu_HU",
+    "ko": "ko_KR",
+    "no": "nb_NO",
+    "nb": "nb_NO",
+    "sk": "sk_SK",
+    "sl": "sl_SI",
+    "tr": "tr_TR",
 }
 
-# Rules that are often noisy on ontology labels/comments.
-# Empty by default — add language-specific rules here if needed.
-# Example for Spanish:
-#   "es": {"WHITESPACE_RULE", "UPPERCASE_SENTENCE_START"}
+# Map BCP47 lang tags to LanguageTool language codes (fallback)
+LT_LANG_MAP = {
+    "en": "en-US", "en-us": "en-US", "en-gb": "en-GB",
+    "es": "es", "es-es": "es", "es-419": "es",
+    "fr": "fr", "fr-fr": "fr",
+    "de": "de-DE", "de-de": "de-DE",
+    "pt": "pt-PT", "pt-pt": "pt-PT", "pt-br": "pt-BR",
+    "it": "it", "nl": "nl", "pl": "pl", "ru": "ru", "uk": "uk",
+    "ja": "ja", "zh": "zh-CN", "zh-cn": "zh-CN",
+    "ar": "ar", "ca": "ca", "cs": "cs", "da": "da", "el": "el",
+    "fi": "fi", "gl": "gl", "he": "he", "hi": "hi", "hu": "hu",
+    "ko": "ko", "no": "no", "nb": "no", "ro": "ro", "sk": "sk",
+    "sl": "sl", "sv": "sv", "tl": "tl", "tr": "tr", "fa": "fa",
+}
+
+# Technical terms common in ontologies — skip these during spell-check
+TECHNICAL_WORDS = {
+    # W3C / Semantic Web
+    "rdf", "rdfs", "owl", "skos", "xsd", "shacl", "sh", "sosa", "ssn",
+    "qudt", "geosparql", "voaf", "void", "dcat", "foaf", "schema", "dc",
+    "dcterms", "bibo", "frbr", "prov", "org", "time", "hydra", "ldp",
+    "owl2", "owlrl", "n3", "turtle", "ttl", "nt", "nquads", "nq", "trig",
+    "jsonld", "rdfa", "sparql", "sparql1.1",
+    # Chemistry / physics abbreviations
+    "hcho", "nox", "sox", "pm10", "pm25", "co2", "ch4", "n2o", "o3",
+    # Common acronyms
+    "uri", "url", "urn", "iri", "bnode", "http", "https", "api", "json",
+    "xml", "html", "css", "isbn", "issn", "doi", "orcid",
+}
+
+# LanguageTool disabled rules (per language 2-letter code)
 DEFAULT_DISABLED_RULES = {}
 
-# Minimum literal length to check (skip single words, abbreviations)
-MIN_LENGTH = 3
+MIN_LENGTH_DEFAULT = 3
+MIN_LENGTH_FAST = 10
+DEFAULT_WORKERS = 4
 
 
-def get_tool_for_lang(lang_code: str, _cache: dict | None = None):
+# ---------------------------------------------------------------------------
+# Hunspell checker (fast, primary)
+# ---------------------------------------------------------------------------
+
+def _hunspell_available() -> bool:
+    """Check if hunspell binary is installed."""
+    try:
+        result = subprocess.run(["hunspell", "--version"], capture_output=True,
+                               text=True, timeout=5)
+        return result.returncode == 0 or "Hunspell" in (result.stdout + result.stderr)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def _hunspell_dict_for_lang(lang: str) -> str | None:
+    """Return the hunspell dictionary name for a BCP47 lang tag, or None."""
+    return HUNSPELL_DICT_MAP.get(lang.lower())
+
+
+def check_with_hunspell(value: str, lang: str) -> list[dict]:
+    """
+    Spell-check a literal with hunspell. Returns list of misspelled words
+    with suggestions.
+
+    Uses `hunspell -d <dict> -l` which prints misspelled words to stdout,
+    then `hunspell -d <dict>` in pipe mode for suggestions.
+    """
+    dict_name = _hunspell_dict_for_lang(lang)
+    if not dict_name:
+        return []
+
+    # Tokenize: split on non-word chars, keep unicode letters
+    words = re.findall(r"[\w']+", value)
+    if not words:
+        return []
+
+    # Filter out: short words, pure numbers, technical terms
+    check_words = []
+    for w in words:
+        w_lower = w.lower()
+        if len(w_lower) < 3:
+            continue
+        if w_lower.isdigit():
+            continue
+        if w_lower in TECHNICAL_WORDS:
+            continue
+        check_words.append(w)
+
+    if not check_words:
+        return []
+
+    # Run hunspell in pipe mode: send words, get misspelled + suggestions
+    try:
+        input_text = "\n".join(check_words) + "\n"
+        result = subprocess.run(
+            ["hunspell", "-d", dict_name, "-a"],
+            input=input_text, capture_output=True, text=True, timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
+
+    # Parse hunspell pipe output
+    # Lines starting with '&' = misspelled with suggestions
+    # Lines starting with '#' = misspelled, no suggestions
+    issues = []
+    for line in result.stdout.splitlines():
+        if line.startswith("&"):
+            # Format: & word count offset: suggestion1, suggestion2, ...
+            # e.g. & Lampara 5 0: Lámpara, Lampar, ...
+            m = re.match(r'^& (\S+) \d+ \d+: (.+)', line)
+            if m:
+                word = m.group(1)
+                suggestions = [s.strip() for s in m.group(2).split(",")]
+                issues.append({
+                    "checker": "hunspell",
+                    "message": f"Misspelled word: '{word}'",
+                    "rule": "spelling",
+                    "word": word,
+                    "suggestions": suggestions[:5],
+                    "offset": 0,
+                    "error_length": len(word),
+                })
+        elif line.startswith("#"):
+            # Format: # word offset
+            m = re.match(r'^# (\S+) \d+', line)
+            if m:
+                word = m.group(1)
+                issues.append({
+                    "checker": "hunspell",
+                    "message": f"Unknown word: '{word}'",
+                    "rule": "spelling",
+                    "word": word,
+                    "suggestions": [],
+                    "offset": 0,
+                    "error_length": len(word),
+                })
+
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# LanguageTool checker (slow, fallback for grammar)
+# ---------------------------------------------------------------------------
+
+_lt_cache: dict = {}
+
+
+def _get_lt_tool(lang_code: str):
     """Get or create a LanguageTool instance for a given language."""
-    if _cache is None:
-        _cache = {}
-    lt_lang = LANG_MAP.get(lang_code.lower(), lang_code)
+    lt_lang = LT_LANG_MAP.get(lang_code.lower(), lang_code)
 
-    if lt_lang not in _cache:
+    if lt_lang not in _lt_cache:
         try:
             import language_tool_python
             tool = language_tool_python.LanguageTool(lt_lang)
-            # Disable noisy rules
             two_letter = lang_code[:2].lower() if len(lang_code) >= 2 else lang_code.lower()
             disabled = DEFAULT_DISABLED_RULES.get(two_letter, set())
             if disabled:
                 tool.disabled_rules.update(disabled)
-            _cache[lt_lang] = tool
+            _lt_cache[lt_lang] = tool
         except Exception as e:
-            print(f"[WARN] Cannot create LanguageTool for '{lt_lang}': {e}", file=sys.stderr)
-            _cache[lt_lang] = None
+            print(f"[WARN] Cannot create LanguageTool for '{lt_lang}': {e}",
+                  file=sys.stderr)
+            _lt_cache[lt_lang] = None
 
-    return _cache.get(lt_lang)
+    return _lt_cache.get(lt_lang)
 
 
-def check_literal(value: str, lang: str, max_errors: int = 5) -> list[dict]:
+def check_with_languagetool(value: str, lang: str, max_errors: int = 5,
+                             min_length: int = 10) -> list[dict]:
     """Run LanguageTool on a literal value in its language."""
-    tool = get_tool_for_lang(lang)
+    tool = _get_lt_tool(lang)
     if tool is None:
         return []
 
-    if len(value.strip()) < MIN_LENGTH:
+    if len(value.strip()) < min_length:
         return []
 
     try:
         matches = tool.check(value)
     except Exception as e:
-        print(f"[WARN] LanguageTool error on '{value[:50]}...' ({lang}): {e}", file=sys.stderr)
+        print(f"[WARN] LanguageTool error on '{value[:50]}...' ({lang}): {e}",
+              file=sys.stderr)
         return []
 
     issues = []
     for match in matches[:max_errors]:
-        # Skip style suggestions that are very low confidence
-        if hasattr(match, 'category') and match.category == 'STYLE' and match.rule_issue_type == 'suggestion':
+        if hasattr(match, 'category') and match.category == 'STYLE' \
+                and match.rule_issue_type == 'suggestion':
             continue
-
         issues.append({
+            "checker": "languagetool",
             "message": match.message,
             "context": match.context,
             "rule": match.rule_id,
@@ -176,47 +318,66 @@ def check_literal(value: str, lang: str, max_errors: int = 5) -> list[dict]:
     return issues
 
 
-def detect_lang_mismatch(literal_entry: dict, all_langs: set[str]) -> list[str]:
+# ---------------------------------------------------------------------------
+# Lang-mismatch detection (optional, expensive)
+# ---------------------------------------------------------------------------
+
+def detect_lang_mismatch(value: str, lang: str, all_langs: set[str],
+                         use_hunspell: bool = True) -> list[str]:
     """
     Compare the declared language against all other languages in the repo.
-    If another language produces significantly fewer errors, flag a possible mismatch.
-    """
-    value = literal_entry["value"]
-    lang = literal_entry["lang"]
+    If another language produces significantly fewer errors, flag a mismatch.
 
+    Uses hunspell (fast) if available, otherwise LanguageTool (slow).
+    """
     if len(value.strip()) < 20:
         return []
 
-    issues_declared = check_literal(value, lang)
-    error_count = len(issues_declared)
+    if use_hunspell and _hunspell_available():
+        issues_declared = check_with_hunspell(value, lang)
+    else:
+        issues_declared = check_with_languagetool(value, lang)
 
+    error_count = len(issues_declared)
     if error_count < 3:
         return []
 
-    # Compare against every other language present in the repo
     other_langs = all_langs - {lang}
     best_alt = None
     best_errors = error_count
 
     for alt in other_langs:
-        issues_alt = check_literal(value, alt)
+        if use_hunspell and _hunspell_available():
+            issues_alt = check_with_hunspell(value, alt)
+        else:
+            issues_alt = check_with_languagetool(value, alt)
         if len(issues_alt) < best_errors:
             best_errors = len(issues_alt)
             best_alt = alt
 
     if best_alt and best_errors <= 1 and error_count - best_errors >= 3:
         return [
-            f"Possible lang tag mismatch: declared @{lang} but text looks like @{best_alt} "
-            f"({error_count} errors in {lang} vs {best_errors} in {best_alt})"
+            f"Possible lang tag mismatch: declared @{lang} but text looks like "
+            f"@{best_alt} ({error_count} errors in {lang} vs {best_errors} in {best_alt})"
         ]
 
     return []
 
 
-def audit_repo(repo_path: str, max_errors: int = 5,
-               filter_langs: list[str] | None = None,
-               check_mismatch: bool = True) -> list[dict]:
-    """Main audit: extract literals and check grammar."""
+# ---------------------------------------------------------------------------
+# Main audit
+# ---------------------------------------------------------------------------
+
+def audit_repo(repo_path: str, filter_langs: list[str] | None = None,
+               use_grammar: bool = False, check_mismatch: bool = False,
+               min_length_lt: int = 10, lt_max_errors: int = 5,
+               workers: int = DEFAULT_WORKERS) -> list[dict]:
+    """
+    Main audit: extract literals and check spelling/grammar.
+
+    By default uses hunspell (fast, spelling-only).
+    With --grammar also runs LanguageTool (grammar, slow).
+    """
     print(f"[INFO] Extracting literals from {repo_path}...", file=sys.stderr)
     literals = extract_literals(repo_path, include_no_lang=False)
 
@@ -229,35 +390,47 @@ def audit_repo(repo_path: str, max_errors: int = 5,
         lang_set = set(l.lower() for l in filter_langs)
         literals = [l for l in literals if l["lang"] and l["lang"].lower() in lang_set]
 
-    # Collect all languages present in the repo (for mismatch detection)
+    # Collect all languages present in the repo
     all_langs = set()
     for lit in literals:
         if lit["lang"]:
             all_langs.add(lit["lang"].lower())
 
-    # Deduplicate by (value, lang) — same text in same lang is same check
-    seen = {}
+    # Deduplicate by (value, lang)
+    seen: dict[tuple, list] = {}
     for lit in literals:
         key = (lit["value"], lit["lang"])
-        if key not in seen:
-            seen[key] = []
-        seen[key].append(lit)
+        seen.setdefault(key, []).append(lit)
 
-    print(f"[INFO] Checking {len(seen)} unique literal+lang combinations "
+    unique_count = len(seen)
+    hunspell_ok = _hunspell_available()
+
+    checker_name = "hunspell" if hunspell_ok else "LanguageTool"
+    print(f"[INFO] Checker: {checker_name} (spelling)"
+          f"{' + LanguageTool (grammar)' if use_grammar else ''}",
+          file=sys.stderr)
+    print(f"[INFO] Checking {unique_count} unique literal+lang combinations "
           f"({len(literals)} total occurrences)...", file=sys.stderr)
+    if check_mismatch:
+        print(f"[INFO] Lang-mismatch detection: ON", file=sys.stderr)
 
     report = []
     checked = 0
 
+    # Phase 1: spelling check with hunspell (instant, no parallelism needed)
     for (value, lang), occurrences in seen.items():
         checked += 1
-        if checked % 50 == 0:
-            print(f"  ...checked {checked}/{len(seen)}", file=sys.stderr)
+        if checked % 200 == 0 or checked == unique_count:
+            print(f"  ...checked {checked}/{unique_count}", file=sys.stderr)
 
-        issues = check_literal(value, lang, max_errors)
-        if not issues and not check_mismatch:
-            continue
+        issues = []
 
+        # Hunspell (spelling) — always run if available
+        if hunspell_ok:
+            hs_issues = check_with_hunspell(value, lang)
+            issues.extend(hs_issues)
+
+        # Build entry
         entry = {
             "value": value,
             "lang": lang,
@@ -274,31 +447,73 @@ def audit_repo(repo_path: str, max_errors: int = 5,
 
         # Lang tag mismatch detection
         if check_mismatch and issues:
-            warnings = detect_lang_mismatch(occurrences[0], all_langs)
+            warnings = detect_lang_mismatch(value, lang, all_langs,
+                                            use_hunspell=hunspell_ok)
             if warnings:
                 entry["lang_warnings"] = warnings
 
         if issues or entry.get("lang_warnings"):
             report.append(entry)
 
+    # Phase 2: grammar check with LanguageTool (optional, parallel)
+    if use_grammar and report:
+        print(f"[INFO] Running LanguageTool grammar check on "
+              f"{len(report)} literals with spelling issues...",
+              file=sys.stderr)
+
+        def _lt_check_one(value, lang):
+            lt_issues = check_with_languagetool(value, lang,
+                                                max_errors=lt_max_errors,
+                                                min_length=min_length_lt)
+            return (value, lang, lt_issues)
+
+        done = 0
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {}
+            for entry in report:
+                f = executor.submit(_lt_check_one, entry["value"], entry["lang"])
+                futures[f] = (entry["value"], entry["lang"])
+
+            for f in as_completed(futures):
+                key = futures[f]
+                try:
+                    _val, _lang, lt_issues = f.result()
+                    # Find the matching report entry and append grammar issues
+                    for entry in report:
+                        if entry["value"] == key[0] and entry["lang"] == key[1]:
+                            entry["issues"].extend(lt_issues)
+                            break
+                except Exception as e:
+                    print(f"[WARN] LT check failed for {key}: {e}", file=sys.stderr)
+                done += 1
+                if done % 50 == 0 or done == len(report):
+                    print(f"  ...LT checked {done}/{len(report)}", file=sys.stderr)
+
+    # Remove entries that ended up with no issues after filtering
+    report = [e for e in report if e["issues"] or e.get("lang_warnings")]
+
     print(f"[INFO] Done. Found {len(report)} literals with issues.", file=sys.stderr)
     return report
 
 
-def format_report_markdown(report: list[dict]) -> str:
+# ---------------------------------------------------------------------------
+# Report formatting
+# ---------------------------------------------------------------------------
+
+def format_report_markdown(report: list[dict], hunspell_used: bool) -> str:
     """Format the report as Markdown."""
-    lines = ["# Ontology Grammar Audit Report", ""]
-    lines.append(f"Generated by `ontology-typo-audit` skill (rdflib + LanguageTool)")
+    checker = "hunspell" if hunspell_used else "LanguageTool"
+    lines = ["# Ontology Typo Audit Report", ""]
+    lines.append(f"_Generated by `ontology-typo-audit` skill (rdflib + {checker})_")
     lines.append("")
 
     if not report:
-        lines.append("**No grammar or spelling issues found.** ✅")
+        lines.append("**No spelling or grammar issues found.** ✅")
         return "\n".join(lines)
 
     lines.append(f"**{len(report)} literals with issues found.**")
     lines.append("")
 
-    # Group by language
     by_lang = {}
     for entry in report:
         lang = entry["lang"] or "(none)"
@@ -318,11 +533,21 @@ def format_report_markdown(report: list[dict]) -> str:
                 for w in entry["lang_warnings"]:
                     lines.append(f"- ⚠️ **Lang tag warning:** {w}")
 
+            # Group by checker
+            by_checker = {}
             for issue in entry["issues"]:
-                suggestions = ", ".join(f"`{s}`" for s in issue["suggestions"]) if issue["suggestions"] else "(none)"
-                lines.append(f"- **{issue['rule']}**: {issue['message']}")
-                lines.append(f"  - Context: ...{issue['context']}...")
-                lines.append(f"  - Suggestions: {suggestions}")
+                by_checker.setdefault(issue.get("checker", "?"), []).append(issue)
+
+            for checker_key, checker_issues in by_checker.items():
+                label = {"hunspell": "📖 Spelling", "languagetool": "✍️ Grammar"}.get(checker_key, checker_key)
+                lines.append(f"- **{label}:**")
+                for issue in checker_issues:
+                    suggestions = ", ".join(f"`{s}`" for s in issue["suggestions"]) \
+                                  if issue["suggestions"] else "(none)"
+                    word_info = f" `{issue['word']}`" if issue.get("word") else ""
+                    lines.append(f"  - **{issue['rule']}**{word_info}: {issue['message']}")
+                    if suggestions != "(none)":
+                        lines.append(f"    - Suggestions: {suggestions}")
 
             lines.append(f"- **Occurs in:**")
             for occ in entry["occurrences"]:
@@ -334,22 +559,37 @@ def format_report_markdown(report: list[dict]) -> str:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Audit RDF literals for grammar/spelling errors using LanguageTool"
+        description="Audit RDF literals for spelling/grammar errors. "
+                    "Uses hunspell (fast) by default, LanguageTool with --grammar."
     )
     parser.add_argument("repo_path", help="Path to the ontology repository")
     parser.add_argument("-o", "--output", help="Output file (.json or .md, inferred from extension)")
-    parser.add_argument("--max-errors", type=int, default=5,
-                        help="Max grammar issues per literal (default: 5)")
     parser.add_argument("--lang", nargs="+", default=None,
                         help="Only check these language tags (e.g. --lang es en)")
+    parser.add_argument("--grammar", action="store_true",
+                        help="Also run LanguageTool grammar check (slow — "
+                             "spelling is checked first with hunspell, then grammar "
+                             "only on literals with issues)")
+    parser.add_argument("--lt-max-errors", type=int, default=5,
+                        help="Max LanguageTool issues per literal (default: 5)")
+    parser.add_argument("--lt-min-length", type=int, default=10,
+                        help="Skip LanguageTool on literals shorter than N chars "
+                             "(default: 10 — short labels produce mostly grammar noise)")
+    parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS,
+                        help=f"Parallel LanguageTool workers (default: {DEFAULT_WORKERS})")
+    parser.add_argument("--fast", action="store_true",
+                        help="Fast mode: spelling only, skip short literals for LT, "
+                             "no mismatch detection")
     parser.add_argument("--dump", action="store_true",
-                        help="Dump all string literals without checking grammar")
+                        help="Dump all string literals without checking")
     parser.add_argument("--no-lang", action="store_true",
                         help="Include literals without a language tag when dumping")
-    parser.add_argument("--no-mismatch", action="store_true",
-                        help="Skip lang tag mismatch detection")
-    parser.add_argument("--format", choices=["json", "markdown", "report"], default="markdown",
-                        help="Output format: markdown (default), json, or report (standardized table)")
+    parser.add_argument("--mismatch", action="store_true",
+                        help="Enable lang-tag mismatch detection (fast with hunspell, "
+                             "slow with LanguageTool)")
+    parser.add_argument("--format", choices=["json", "markdown", "report"],
+                        default="markdown",
+                        help="Output format: markdown (default), json, or report")
     args = parser.parse_args()
 
     if args.dump:
@@ -361,9 +601,12 @@ def main():
 
     report = audit_repo(
         args.repo_path,
-        max_errors=args.max_errors,
         filter_langs=args.lang,
-        check_mismatch=not args.no_mismatch,
+        use_grammar=args.grammar and not args.fast,
+        check_mismatch=args.mismatch and not args.fast,
+        min_length_lt=args.lt_min_length if not args.fast else 20,
+        lt_max_errors=2 if args.fast else args.lt_max_errors,
+        workers=args.workers,
     )
 
     # Determine format from output extension if given
@@ -396,7 +639,8 @@ def main():
                            message=w, severity="warning", check="lang-mismatch")
         output_text = ar.to_json()
     else:
-        output_text = format_report_markdown(report)
+        hunspell_used = _hunspell_available()
+        output_text = format_report_markdown(report, hunspell_used)
 
     if args.output:
         Path(args.output).write_text(output_text, encoding="utf-8")
