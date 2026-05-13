@@ -51,13 +51,19 @@ def generate_minimal_shapes(g: Graph) -> Graph:
 
         # Add property shapes for each datatype/object property in the domain of this class
         for prop in g.subjects(RDFS.domain, cls):
-            if not (prop, RDF.type, OWL.DatatypeProperty) in g and \
-               not (prop, RDF.type, OWL.ObjectProperty) in g:
+            is_datatype = (prop, RDF.type, OWL.DatatypeProperty) in g
+            is_object = (prop, RDF.type, OWL.ObjectProperty) in g
+            if not is_datatype and not is_object:
                 continue
             ps_uri = cls + "_" + (compact_uri(prop, g).split(":")[-1] if hasattr(g, 'namespace_manager') else str(prop).split("/")[-1]) + "Shape"
             shapes.add((shape_uri, SH.property, ps_uri))
             shapes.add((ps_uri, SH.path, prop))
             shapes.add((ps_uri, SH.minCount, XSD.literal(0)))
+            # Allow blank nodes and IRIs for object properties, literals for datatype properties
+            if is_object:
+                shapes.add((ps_uri, SH.nodeKind, SH.BlankNodeOrIRI))
+            elif is_datatype:
+                shapes.add((ps_uri, SH.nodeKind, SH.Literal))
 
             # Infer min/max cardinality from OWL restrictions if present
             for restricted in g.subjects(RDFS.subClassOf, cls):

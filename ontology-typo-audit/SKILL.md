@@ -131,5 +131,7 @@ examples is only a suggestion — always confirm with the user first.
    The audit flags mismatches by comparing error rates across all languages
    present in the repo.
 
-5. **Review LanguageTool suggestions before applying.** Short labels
-   (proper nouns, acronyms) often trigger false positives.
+5. **Review LanguageTool suggestions before applying.** Short labels,
+   proper nouns, and technical acronyms (SOSA, QUDT, GeoSPARQL, OWL, RDF,
+   chemical formulas like HCHO/NOx) often trigger false positives. Always
+   verify suggestions against domain knowledge before changing labels.

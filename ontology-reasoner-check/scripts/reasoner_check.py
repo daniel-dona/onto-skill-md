@@ -61,6 +61,14 @@ def merge_and_check(repo_path: str, main_file: str | None = None) -> dict:
     if len(g) == 0:
         return {"warnings": warnings, "error": "No RDF triples loaded"}
 
+    # Remove owl:imports to prevent owlready2 from trying to download remote ontologies
+    imports_removed = 0
+    for s, p, o in list(g.triples((None, OWL.imports, None))):
+        g.remove((s, p, o))
+        imports_removed += 1
+    if imports_removed:
+        print(f"[INFO] Removed {imports_removed} owl:imports triples (owlready2 would fail on remote URLs)", file=sys.stderr)
+
     # Serialize to temp file for owlready2
     with tempfile.NamedTemporaryFile(suffix=".owl", delete=False, mode="w", encoding="utf-8") as tmp:
         tmp_path = tmp.name

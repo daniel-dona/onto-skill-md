@@ -38,22 +38,29 @@ OOPS_REST_URL = "https://oops.linkeddata.es/rest"
 # 1. Load & serialize
 # --------------------------------------------------------------------------- #
 
-def load_ontology(repo_path: str) -> tuple[Graph, list[str]]:
-    """Parse all RDF files in the repo into a single graph.  Return (graph, warnings)."""
+def load_ontology(repo_path: str) -> tuple[Graph, list[str], int]:
+    """Parse all RDF files in the repo into a single graph.
+    Returns (graph, warnings, file_count)."""
     g = Graph()
     warnings = []
     rdf_files = find_rdf_files(repo_path)
     if not rdf_files:
         warnings.append(f"No RDF files found in {repo_path}")
-        return g, warnings
+        return g, warnings, 0
 
     for fpath in rdf_files:
+        triples_before = len(g)
         try:
             g.parse(fpath)
         except Exception as e:
             warnings.append(f"Could not parse {fpath}: {e}")
+            continue
+        # Detect duplicate content (file parsed but added ~0 new triples)
+        triples_after = len(g)
+        if triples_after == triples_before and triples_before > 0:
+            warnings.append(f"Duplicate content in {fpath} (no new triples — may be a copy of another file)")
 
-    return g, warnings
+    return g, warnings, len(rdf_files)
 
 
 def serialize_to_rdfxml(g: Graph) -> str:
@@ -333,7 +340,7 @@ def main():
 
     # 1. Load ontology
     print(f"[INFO] Loading RDF files from {args.repo_path}...", file=sys.stderr)
-    g, warnings = load_ontology(args.repo_path)
+    g, warnings, file_count = load_ontology(args.repo_path)
     for w in warnings:
         print(f"[WARN] {w}", file=sys.stderr)
 

@@ -120,6 +120,13 @@ def validate_repo(repo_path: str, use_rapper: bool = True) -> dict:
         rel = os.path.relpath(fpath, repo_path)
         if use_rapper:
             r = check_with_rapper(fpath)
+            # Per-file fallback to rdflib when rapper fails
+            if not r["ok"]:
+                r2 = check_with_rdflib(fpath)
+                if r2["ok"]:
+                    r = r2
+                    r["note"] = "rapper failed, parsed with rdflib fallback"
+                # else: keep rapper error
         else:
             r = check_with_rdflib(fpath)
 
@@ -176,7 +183,8 @@ def format_report_markdown(report: dict) -> str:
         lines.append("## Files OK ({})".format(len(report["files"])))
         lines.append("")
         for f in sorted(report["files"], key=lambda x: x["file"]):
-            lines.append(f"- ✅ `{f['file']}` ({f.get('triples', 0)} triples)")
+            note = f" ⚠️ {f['note']}" if f.get('note') else ""
+            lines.append(f"- ✅ `{f['file']}` ({f.get('triples', 0)} triples){note}")
         lines.append("")
 
     return "\n".join(lines)
