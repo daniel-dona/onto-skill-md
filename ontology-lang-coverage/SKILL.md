@@ -53,6 +53,20 @@ Resources with labels in languages outside the expected set trigger an
 "extra language" info note — useful for catching accidental `@fr` labels
 in an `en/de`-only project.
 
+## Standardized Report
+
+All skills support `--format report` which outputs a common JSON schema:
+```json
+{
+  "skill": "skill-name",
+  "summary": {"errors": N, "warnings": N, "info": N},
+  "issues": [{"file": ".ttl", "element": ":Class", "message": "...",
+              "severity": "error|warning|info", "check": "RULE",
+              "suggestion": "fix"}]
+}
+```
+This format is consumed by `ontology-full-audit` to produce unified reports.
+
 ## Important Rules
 
 1. **Always specify `--lang` for accurate results.** Auto-detection may

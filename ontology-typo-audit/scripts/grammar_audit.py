@@ -299,8 +299,8 @@ def main():
                         help="Only check these language tags (e.g. --lang es en)")
     parser.add_argument("--no-mismatch", action="store_true",
                         help="Skip lang tag mismatch detection")
-    parser.add_argument("--format", choices=["json", "markdown"], default="markdown",
-                        help="Output format (default: markdown)")
+    parser.add_argument("--format", choices=["json", "markdown", "report"], default="markdown",
+                        help="Output format: markdown (default), json, or report (standardized table)")
     args = parser.parse_args()
 
     report = audit_repo(
@@ -321,6 +321,24 @@ def main():
 
     if fmt == "json":
         output_text = json.dumps(report, indent=2, ensure_ascii=False)
+    elif fmt == "report":
+        from report_format import AuditReport
+        ar = AuditReport(skill="typo-audit")
+        for entry in report:
+            for issue in entry.get("issues", []):
+                for occ in entry.get("occurrences", []):
+                    ar.add(
+                        file=occ["file"], element=occ["subject_short"],
+                        message=issue["message"], severity="warning",
+                        check=issue.get("rule", ""),
+                        suggestion=issue["suggestions"][0] if issue.get("suggestions") else "",
+                        predicate=occ.get("predicate_short", ""),
+                    )
+            for w in entry.get("lang_warnings", []):
+                for occ in entry.get("occurrences", []):
+                    ar.add(file=occ["file"], element=occ["subject_short"],
+                           message=w, severity="warning", check="lang-mismatch")
+        output_text = ar.to_json()
     else:
         output_text = format_report_markdown(report)
 

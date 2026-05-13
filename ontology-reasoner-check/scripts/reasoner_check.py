@@ -215,7 +215,7 @@ def main():
     parser.add_argument("repo_path", help="Path to the ontology repository")
     parser.add_argument("-o", "--output", help="Output file (.json or .md)")
     parser.add_argument("--only-file", help="Only reason over a specific file")
-    parser.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    parser.add_argument("--format", choices=["json", "markdown", "report"], default="markdown")
     args = parser.parse_args()
 
     results = merge_and_check(args.repo_path, main_file=args.only_file)
@@ -228,6 +228,22 @@ def main():
 
     if fmt == "json":
         output = json.dumps(results, indent=2, ensure_ascii=False, default=str)
+    elif fmt == "report":
+        from report_format import AuditReport
+        ar = AuditReport(skill="reasoner-check")
+        if results.get("inconsistent"):
+            ar.add(file="—", element="owl:Thing",
+                   message="Ontology is globally inconsistent (owl:Nothing ≡ owl:Thing)",
+                   severity="error", check="global-inconsistency")
+        for c in results.get("unsatisfiable_classes", []):
+            ar.add(file="—", element=c["name"],
+                   message=f"Unsatisfiable class: {c['name']}", severity="error",
+                   check="unsatisfiable-class")
+        for eq in results.get("equivalent_classes", []):
+            ar.add(file="—", element=eq["class1"],
+                   message=f"Inferred equivalent to {eq['class2']}", severity="info",
+                   check="equivalent-class", suggestion=f"Consider merging or declaring owl:equivalentClass")
+        output = ar.to_json()
     else:
         output = format_report_markdown(results)
 

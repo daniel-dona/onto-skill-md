@@ -14,6 +14,9 @@ advanced (logical consistency).
 **No new scripts.** This skill instructs the agent to run the existing tools
 in a planned sequence and produce a unified report.
 
+Each audit skill supports `--format report` which outputs a **standardized JSON
+schema** — same structure across all skills, easy to merge programmatically.
+
 ## Prerequisites
 
 One venv with all dependencies:
@@ -142,4 +145,37 @@ python ontology-oops-scan/scripts/oops_scan.py . -o 05_oops.md && \
 python ontology-shacl-validate/scripts/shacl_validate.py . -o 06_shacl.md && \
 python ontology-reasoner-check/scripts/reasoner_check.py . -o 07_reasoner.md && \
 echo "Full audit complete. See FULL_AUDIT.md"
+```
+
+## Programmatic Consumption
+
+Every skill supports `--format report` which outputs a common JSON schema:
+
+```json
+{
+  "skill": "typo-audit",
+  "summary": {"errors": 0, "warnings": 5, "info": 0},
+  "issues": [
+    {"file": "onto.ttl", "element": ":StreetLamp",
+     "message": "Possible spelling mistake", "severity": "warning",
+     "check": "MORFOLOGIK_RULE_ES", "suggestion": "Lámpara"}
+  ]
+}
+```
+
+This makes it easy to merge reports programmatically:
+
+```python
+import json, glob
+all_issues = []
+for f in glob.glob("*_report.json"):
+    report = json.load(open(f))
+    all_issues.extend(report["issues"])
+
+# Sort by severity
+all_issues.sort(key=lambda i: {"error": 0, "warning": 1, "info": 2}[i["severity"]])
+
+print(f"Total issues: {len(all_issues)}")
+for issue in all_issues:
+    print(f"[{issue['severity']}] {issue['skill']}: {issue['message']}")
 ```

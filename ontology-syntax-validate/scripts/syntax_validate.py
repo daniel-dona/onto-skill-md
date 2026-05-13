@@ -188,7 +188,7 @@ def main():
     parser.add_argument("-o", "--output", help="Output file (.json or .md)")
     parser.add_argument("--rdflib", action="store_true",
                         help="Use rdflib instead of rapper for parsing")
-    parser.add_argument("--format", choices=["json", "markdown"], default="markdown")
+    parser.add_argument("--format", choices=["json", "markdown", "report"], default="markdown")
     args = parser.parse_args()
 
     print(f"[INFO] Validating RDF files in {args.repo_path}...", file=sys.stderr)
@@ -215,6 +215,14 @@ def main():
 
     if fmt == "json":
         output = json.dumps(report, indent=2, ensure_ascii=False, default=str)
+    elif fmt == "report":
+        from report_format import AuditReport
+        ar = AuditReport(skill="syntax-validate")
+        for f in report.get("failed", []):
+            ar.add(file=f["file"], element="—",
+                   message=f.get("error", "")[:200], severity="error",
+                   check="parse-error", line=f.get("line", 0))
+        output = ar.to_json()
     else:
         output = format_report_markdown(report)
 
