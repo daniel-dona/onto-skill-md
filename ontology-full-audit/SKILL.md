@@ -18,6 +18,11 @@ One venv with all dependencies:
 python3 -m venv .venv && source .venv/bin/activate
 pip install rdflib language-tool-python requests pyshacl owlready2 pyoxigraph
 ```
+> **After finishing:** deactivate the venv and remove it:
+> ```bash
+> deactivate && rm -rf .venv
+> ```
+> Skip this if the user asks to keep the environment.
 
 Rapper for syntax validation is a system tool:
 
@@ -137,3 +142,11 @@ After completing all dimensions, produce a single report with:
 
 3. **Recommendations** — prioritised list of actions: errors first, then
    warnings, then info items.
+
+## Output Files
+
+**Never write files into the repository without permission.** Before generating
+any report or output file, ask the user where to save it (e.g. `-o ../report.md`
+or an absolute path outside the repo). The default output path in script
+examples is only a suggestion — always confirm with the user first.
+

@@ -31,6 +31,11 @@ source .venv/bin/activate
 
 pip install rdflib language-tool-python
 ```
+> **After finishing:** deactivate the venv and remove it:
+> ```bash
+> deactivate && rm -rf .venv
+> ```
+> Skip this if the user asks to keep the environment.
 
 > **Note:** `language-tool-python` downloads a Java-based LanguageTool server
 > on first use (~200 MB). Requires JRE 8+. First run may take 30–60s.
@@ -102,6 +107,14 @@ All skills support `--format report` which outputs a common JSON schema:
 }
 ```
 This format is consumed by `ontology-full-audit` to produce unified reports.
+
+
+## Output Files
+
+**Never write files into the repository without permission.** Before generating
+any report or output file, ask the user where to save it (e.g. `-o ../report.md`
+or an absolute path outside the repo). The default output path in script
+examples is only a suggestion — always confirm with the user first.
 
 ## Important Rules
 

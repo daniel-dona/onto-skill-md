@@ -45,6 +45,11 @@ source .venv/bin/activate
 
 pip install rdflib requests
 ```
+> **After finishing:** deactivate the venv and remove it:
+> ```bash
+> deactivate && rm -rf .venv
+> ```
+> Skip this if the user asks to keep the environment.
 
 > **Tip:** If you also use the `ontology-typo-audit` skill, install all deps at once:
 > ```bash
@@ -117,6 +122,14 @@ python scripts/oops_scan.py . --timeout 300
 4. POSTed to `https://oops.linkeddata.es/rest` (Content-Type: `application/xml`)
 5. The **XML response** is parsed into structured pitfalls, warnings, and suggestions
 6. Rendered as **Markdown** or **JSON**
+
+
+## Output Files
+
+**Never write files into the repository without permission.** Before generating
+any report or output file, ask the user where to save it (e.g. `-o ../report.md`
+or an absolute path outside the repo). The default output path in script
+examples is only a suggestion — always confirm with the user first.
 
 ## Important Rules
 

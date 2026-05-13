@@ -36,6 +36,11 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 
 pip install rdflib
 ```
+> **After finishing:** deactivate the venv and remove it:
+> ```bash
+> deactivate && rm -rf .venv
+> ```
+> Skip this if the user asks to keep the environment.
 
 ## Workflow
 
@@ -103,6 +108,14 @@ All skills support `--format report` which outputs a common JSON schema:
 }
 ```
 This format is consumed by `ontology-full-audit` to produce unified reports.
+
+
+## Output Files
+
+**Never write files into the repository without permission.** Before generating
+any report or output file, ask the user where to save it (e.g. `-o ../report.md`
+or an absolute path outside the repo). The default output path in script
+examples is only a suggestion — always confirm with the user first.
 
 ## Important Rules
 

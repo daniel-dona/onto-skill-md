@@ -31,6 +31,11 @@ source .venv/bin/activate
 
 pip install rdflib pyoxigraph
 ```
+> **After finishing:** deactivate the venv and remove it:
+> ```bash
+> deactivate && rm -rf .venv
+> ```
+> Skip this if the user asks to keep the environment.
 
 > `pyoxigraph` is a pre-compiled Python wheel — no Rust toolchain, no Java, no binary downloads needed.
 
@@ -117,6 +122,14 @@ curl -X POST http://localhost:7878/update \
 │  /       — YASGUI    │
 └─────────────────────┘
 ```
+
+
+## Output Files
+
+**Never write files into the repository without permission.** Before generating
+any report or output file, ask the user where to save it (e.g. `-o ../report.md`
+or an absolute path outside the repo). The default output path in script
+examples is only a suggestion — always confirm with the user first.
 
 ## Limitations
 
