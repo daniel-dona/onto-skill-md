@@ -12,23 +12,9 @@ order, and findings reported with severity: ❌ error (blocks release),
 
 ## Prerequisites
 
-One venv with all dependencies:
-
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install rdflib language-tool-python requests pyshacl owlready2 pyoxigraph
-```
-> **After finishing:** deactivate the venv and remove it:
-> ```bash
-> deactivate && rm -rf .venv
-> ```
-> Skip this if the user asks to keep the environment.
-
-Rapper for syntax validation is a system tool:
-
-```bash
-sudo apt install raptor2-utils
-```
+Each skill manages its own environment and dependencies. Refer to the
+individual skill's `SKILL.md` for setup instructions. Run the dimensions in
+order — syntax validation must pass before any other dimension.
 
 ---
 
