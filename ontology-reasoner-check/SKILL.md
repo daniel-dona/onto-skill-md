@@ -13,6 +13,11 @@ global ontology inconsistency.
 
 **Single script:** `scripts/reasoner_check.py`
 
+> **Note:** The script strips `owl:imports` before reasoning to prevent
+> owlready2 from trying to download remote ontologies (which would fail).
+> This means the reasoner only checks axioms defined locally — imported
+> vocabulary axioms are not included in the consistency check.
+
 ## What It Detects
 
 | Issue | Example |

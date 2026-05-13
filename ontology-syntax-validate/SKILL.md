@@ -24,7 +24,7 @@ rapper is not installed.
 | `.nt` | N-Triples | rapper / rdflib |
 | `.nq` | N-Quads | rapper |
 | `.trig` | TriG | rapper / rdflib |
-| `.jsonld` | JSON-LD | rapper / rdflib |
+| `.jsonld` | JSON-LD | rdflib (rapper fallback) |
 | `.html`, `.xhtml` | RDFa | rapper |
 
 ## Setup
@@ -43,13 +43,10 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install rdflib
 ```
-> **After finishing:** deactivate the venv and remove it:
-> ```bash
-> deactivate && rm -rf .venv
-> ```
+> **After finishing:** deactivate the venv and remove it (`deactivate && rm -rf .venv`).
 > Skip this if the user asks to keep the environment.
 
-No virtual environment needed if you only use rapper (it's a system tool).
+If you only use rapper, skip the venv setup — rapper is a system tool.
 
 ## Usage
 
@@ -93,5 +90,7 @@ examples is only a suggestion — always confirm with the user first.
 2. **rapper is stricter than rdflib.** It may flag valid-but-ambiguous
    constructs as warnings. Treat rapper errors as authoritative.
 
-3. **Large files may time out.** Use `--rdflib` for files over 10K triples if
-   rapper is slow (default 30s timeout per file).
+3. **rapper is stricter than rdflib.** It may flag valid-but-ambiguous
+   constructs. The script automatically falls back to rdflib per file when
+   rapper fails — check the report for `⚠️ rapper failed, parsed with rdflib`
+   notes to identify format mismatches.

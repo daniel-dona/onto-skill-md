@@ -12,6 +12,10 @@ the script auto-generates minimal ones from `owl:Class` + `rdfs:domain`/`range` 
 
 **Single script:** `scripts/shacl_validate.py`
 
+Auto-generated shapes set `sh:nodeKind` appropriately: `sh:BlankNodeOrIRI` for
+object properties, `sh:Literal` for datatype properties. This prevents false
+violations when instance data uses blank nodes.
+
 ## What It Detects
 
 | Issue | Example |

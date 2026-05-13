@@ -19,7 +19,7 @@ The full catalogue is at <https://oops.linkeddata.es/catalogue.jsp>. Key pitfall
 | Code | Name | Severity |
 |------|------|----------|
 | P02 | Polysemous elements | Important |
-| P04 | Creating unconnected ontology elements | Important |
+| P04 | Creating unconnected ontology elements | Minor |
 | P05 | Defining wrong equivalence relationships | Important |
 | P06 | Inverse not declared | Important |
 | P07 | Equivalent properties not declared | Important |
