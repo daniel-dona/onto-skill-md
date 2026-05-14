@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
-# build_hunspell.sh — Compile hunspell from source + download dictionaries
+# build_hunspell.sh — Compile hunspell from source
 #
-# Compiles libhunspell as a shared library. Downloads dictionaries from
-# the LibreOffice repository based on:
-#   --repo <path>  : auto-detect langs from the ontology repo (recommended)
-#   --langs xx,yy  : explicit language list
-#   (default)      : english only
-#
-# Install to local prefix (no root needed).
+# Compiles libhunspell as a shared library and optionally downloads
+# dictionaries from the LibreOffice repository.
 #
 # Dependencies: g++ make autoconf automake autopoint libtool
+#
+# Usage:
+#   bash scripts/build_hunspell.sh                    # compile only
+#   bash scripts/build_hunspell.sh --langs es en de   # compile + download dicts
 #
 set -euo pipefail
 
@@ -61,16 +60,12 @@ LANG_MAP[eo]="eo/eo"
 LANG_MAP[af]="af_ZA/af_ZA"
 
 # Parse args
-REPO_PATH=""
 LANGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --repo)
-            shift
-            REPO_PATH="$1"
-            ;;
         --langs)
             shift
+            # Support both comma-separated and space-separated
             IFS=',' read -ra LANGS <<< "$1"
             ;;
         --prefix)
@@ -80,14 +75,15 @@ while [[ $# -gt 0 ]]; do
         --help|-h)
             echo "Usage: $0 [OPTIONS]"
             echo ""
-            echo "Compile hunspell from source and download dictionaries."
+            echo "Compile hunspell from source. Optionally download dictionaries."
             echo ""
             echo "Options:"
-            echo "  --repo <path>   Auto-detect languages from ontology repo"
-            echo "  --langs xx,yy   Explicit language codes (e.g. es,en,de)"
+            echo "  --langs xx,yy   Download dictionaries for these languages"
             echo "  --prefix <dir>  Install prefix (default: ~/.local/share/hunspell-built)"
             echo ""
-            echo "If neither --repo nor --langs is given, defaults to English."
+            echo "Note: grammar_audit.py auto-downloads dictionaries based on the"
+            echo "project's @lang tags. You only need --langs here if you want to"
+            echo "pre-download dictionaries (e.g. for offline use)."
             echo ""
             echo "Available --langs codes:"
             echo "  en es fr de it pt nl ru ar ca gl ro sv cs da el fi hu ko"
@@ -102,37 +98,14 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-# ── Detect languages from repo ─────────────────────────────────────
-if [[ -n "$REPO_PATH" ]]; then
-    echo "[INFO] Detecting languages from $REPO_PATH..."
-    DETECTED=$(python3 -c "
-import sys; sys.path.insert(0, '$(dirname \"$0\")')
-from grammar_audit import extract_literals, detect_languages
-lits = extract_literals('$REPO_PATH', include_no_lang=False)
-langs = detect_languages(lits)
-if not langs:
-    langs = {'en'}
-print(','.join(sorted(langs)))
-" 2>/dev/null)
-    if [[ -n "$DETECTED" ]]; then
-        IFS=',' read -ra LANGS <<< "$DETECTED"
-        echo "  Detected: ${LANGS[*]}"
-    else
-        echo "  No languages detected — defaulting to English"
-        LANGS=("en")
-    fi
-fi
-
-# Default: English only
-if [[ ${#LANGS[@]} -eq 0 ]]; then
-    LANGS=("en")
-    echo "[INFO] No --repo or --langs specified — defaulting to English"
-fi
-
 echo "============================================================"
 echo "  Hunspell Build Script"
 echo "  Prefix:  $PREFIX"
-echo "  Langs:   ${LANGS[*]}"
+if [[ ${#LANGS[@]} -gt 0 ]]; then
+    echo "  Dicts:   ${LANGS[*]}"
+else
+    echo "  Dicts:   (none — grammar_audit.py auto-downloads per project)"
+fi
 echo "============================================================"
 
 # ── Step 1: Compile hunspell ────────────────────────────────────────
@@ -172,59 +145,69 @@ else
     exit 1
 fi
 
-# ── Step 2: Download dictionaries ──────────────────────────────────
-echo ""
-echo "[2/2] Downloading dictionaries for: ${LANGS[*]}..."
+# ── Step 2: Download dictionaries (optional) ───────────────────────
+if [[ ${#LANGS[@]} -eq 0 ]]; then
+    echo ""
+    echo "[2/2] Skipping dictionary download."
+    echo "  grammar_audit.py will auto-download dictionaries based on"
+    echo "  the project's @lang tags when you run it."
+else
+    echo ""
+    echo "[2/2] Downloading dictionaries for: ${LANGS[*]}..."
 
-DICT_DIR="$PREFIX/share/hunspell"
-mkdir -p "$DICT_DIR"
+    DICT_DIR="$PREFIX/share/hunspell"
+    mkdir -p "$DICT_DIR"
 
-DOWNLOADED=0
-SKIPPED=0
-for lang in "${LANGS[@]}"; do
-    mapping="${LANG_MAP[$lang]:-}"
-    if [[ -z "$mapping" ]]; then
-        echo "  ✗ $lang: unknown language code (skipping)" >&2
-        ((SKIPPED++))
-        continue
-    fi
+    DOWNLOADED=0
+    SKIPPED=0
+    for lang in "${LANGS[@]}"; do
+        mapping="${LANG_MAP[$lang]:-}"
+        if [[ -z "$mapping" ]]; then
+            echo "  ✗ $lang: unknown language code (skipping)" >&2
+            ((SKIPPED++)) || true
+            continue
+        fi
 
-    lo_dir="${mapping%%/*}"
-    dict_name="${mapping##*/}"
+        lo_dir="${mapping%%/*}"
+        dict_name="${mapping##*/}"
 
-    # Skip if already downloaded
-    if [[ -f "$DICT_DIR/$dict_name.aff" ]] && [[ -f "$DICT_DIR/$dict_name.dic" ]]; then
-        echo "  ✓ $lang ($dict_name) — already present"
-        ((DOWNLOADED++))
-        continue
-    fi
+        # Skip if already downloaded
+        if [[ -f "$DICT_DIR/$dict_name.aff" ]] && [[ -f "$DICT_DIR/$dict_name.dic" ]]; then
+            echo "  ✓ $lang ($dict_name) — already present"
+            ((DOWNLOADED++)) || true
+            continue
+        fi
 
-    echo "  Downloading $lang ($dict_name)..."
-    curl -sL "$DICT_BASE/$lo_dir/$dict_name.aff" -o "$DICT_DIR/$dict_name.aff"
-    curl -sL "$DICT_BASE/$lo_dir/$dict_name.dic" -o "$DICT_DIR/$dict_name.dic"
+        echo "  Downloading $lang ($dict_name)..."
+        curl -sL "$DICT_BASE/$lo_dir/$dict_name.aff" -o "$DICT_DIR/$dict_name.aff"
+        curl -sL "$DICT_BASE/$lo_dir/$dict_name.dic" -o "$DICT_DIR/$dict_name.dic"
 
-    if [[ -f "$DICT_DIR/$dict_name.aff" ]] && [[ -f "$DICT_DIR/$dict_name.dic" ]]; then
-        aff_size=$(stat -f%z "$DICT_DIR/$dict_name.aff" 2>/dev/null || stat -c%s "$DICT_DIR/$dict_name.aff" 2>/dev/null || echo 0)
-        dic_size=$(stat -f%z "$DICT_DIR/$dict_name.dic" 2>/dev/null || stat -c%s "$DICT_DIR/$dict_name.dic" 2>/dev/null || echo 0)
-        echo "    ✓ $dict_name.aff ($(( aff_size / 1024 )) KB) + $dict_name.dic ($(( dic_size / 1024 )) KB)"
-        ((DOWNLOADED++))
-    else
-        echo "    ✗ Failed to download $dict_name" >&2
-        ((SKIPPED++))
-    fi
-done
+        if [[ -f "$DICT_DIR/$dict_name.aff" ]] && [[ -f "$DICT_DIR/$dict_name.dic" ]]; then
+            aff_size=$(stat -f%z "$DICT_DIR/$dict_name.aff" 2>/dev/null || stat -c%s "$DICT_DIR/$dict_name.aff" 2>/dev/null || echo 0)
+            dic_size=$(stat -f%z "$DICT_DIR/$dict_name.dic" 2>/dev/null || stat -c%s "$DICT_DIR/$dict_name.dic" 2>/dev/null || echo 0)
+            echo "    ✓ $dict_name.aff ($(( aff_size / 1024 )) KB) + $dict_name.dic ($(( dic_size / 1024 )) KB)"
+            ((DOWNLOADED++)) || true
+        else
+            echo "    ✗ Failed to download $dict_name" >&2
+            ((SKIPPED++)) || true
+        fi
+    done
+
+    echo ""
+    echo "  Downloaded: $DOWNLOADED ok, $SKIPPED skipped"
+fi
 
 # ── Summary ────────────────────────────────────────────────────────
 echo ""
 echo "============================================================"
 echo "  Done!"
 echo "  Library:      $PREFIX/lib/"
-echo "  Dictionaries: $DICT_DIR/"
-echo "  Downloaded:   $DOWNLOADED ok, $SKIPPED skipped"
+echo "  Dictionaries: $PREFIX/share/hunspell/"
 echo ""
 echo "To use with grammar_audit.py:"
 echo "  export HUNSPELL_PREFIX=$PREFIX"
 echo "  python scripts/grammar_audit.py <repo-path>"
 echo ""
-echo "Or just run grammar_audit.py — it auto-downloads missing dicts."
+echo "Dictionaries are auto-downloaded per project — you rarely need"
+echo "to use --langs. Just run grammar_audit.py and it handles it."
 echo "============================================================"

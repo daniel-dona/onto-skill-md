@@ -33,14 +33,11 @@ pip install rdflib
 **Option A: Build from source (recommended — works everywhere, no root)**
 
 ```bash
-# Auto-detect languages from your ontology repo:
-bash scripts/build_hunspell.sh --repo .
-
-# Or explicit languages:
-bash scripts/build_hunspell.sh --langs es,en,de
-
-# Default: English only
+# Compile library only (dictionaries auto-downloaded later):
 bash scripts/build_hunspell.sh
+
+# Or pre-download dictionaries for offline use:
+bash scripts/build_hunspell.sh --langs es,en,de
 ```
 
 Build dependencies: `g++ make autoconf automake autopoint libtool`
@@ -57,6 +54,10 @@ xcode-select --install
 brew install autoconf automake libtool gettext
 brew link gettext --force
 ```
+
+> **Note:** You don't need `--langs` with build_hunspell.sh. Just compile
+> the library — `grammar_audit.py` auto-downloads dictionaries based on
+> the project's `@lang` tags when you run it.
 
 **Option B: System package (if you have root)**
 
